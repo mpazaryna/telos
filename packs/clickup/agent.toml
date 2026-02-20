@@ -1,0 +1,4 @@
+name = "clickup"
+description = "ClickUp task review and project status"
+working_dir = "."
+executor = "claude_code"

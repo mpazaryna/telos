@@ -1,0 +1,23 @@
+[defaults]
+default_agent = "kairos"
+
+[agents.kairos]
+mode        = "linked"
+description = "Personal productivity system — daily notes, weekly/monthly summaries, load tracking"
+skills_dir  = "~/Documents/ObsidianVault/.claude/commands"
+working_dir = "~/Documents/ObsidianVault"
+executor    = "claude_code"
+
+[agents.gmail]
+mode        = "installed"
+description = "Gmail query and triage"
+# skills_dir is implicit: ~/.local/share/telos/agents/gmail/skills/
+working_dir = "."
+executor    = "claude_code"
+
+[agents.clickup]
+mode        = "installed"
+description = "ClickUp task review and project status"
+# skills_dir is implicit: ~/.local/share/telos/agents/clickup/skills/
+working_dir = "."
+executor    = "claude_code"
