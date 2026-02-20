@@ -82,6 +82,47 @@ class TestAgent:
         assert agent.skills_dir == Path.home() / "vault/.claude/commands"
         assert agent.working_dir == Path.home() / "vault"
 
+    def test_mcp_config_stored_and_expanded(self):
+        """Agent with mcp_config set → path stored and expanded."""
+        agent = Agent(
+            name="clickup",
+            mode="linked",
+            description="ClickUp",
+            skills_dir=Path("/tmp/skills"),
+            working_dir=Path("."),
+            mcp_config=Path("~/myconfig/mcp.json"),
+        )
+        assert agent.mcp_config is not None
+        assert "~" not in str(agent.mcp_config)
+        assert agent.mcp_config == Path.home() / "myconfig/mcp.json"
+
+    def test_installed_agent_derives_mcp_config(self, monkeypatch, tmp_path):
+        """Installed agent with mcp.json in data dir → derives path automatically."""
+        monkeypatch.setenv("TELOS_DATA_DIR", str(tmp_path))
+        mcp_path = tmp_path / "agents" / "clickup" / "mcp.json"
+        mcp_path.parent.mkdir(parents=True)
+        mcp_path.write_text('{}')
+
+        agent = Agent(
+            name="clickup",
+            mode="installed",
+            description="ClickUp",
+            skills_dir=None,
+            working_dir=Path("."),
+        )
+        assert agent.mcp_config == mcp_path
+
+    def test_mcp_config_defaults_to_none(self):
+        """Agent without mcp_config → field is None."""
+        agent = Agent(
+            name="kairos",
+            mode="linked",
+            description="Test",
+            skills_dir=Path("/tmp/skills"),
+            working_dir=Path("."),
+        )
+        assert agent.mcp_config is None
+
 
 class TestLoadConfig:
     """Tests for load_config."""

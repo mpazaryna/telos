@@ -31,6 +31,18 @@ class TestBuildCommand:
         cmd = build_command("# Skill body")
         assert "User request" not in cmd[2]
 
+    def test_mcp_config_path_inserts_flag(self):
+        """build_command with mcp_config_path → inserts --mcp-config."""
+        cmd = build_command("# Skill body", mcp_config_path=Path("/data/agents/clickup/mcp.json"))
+        assert "--mcp-config" in cmd
+        idx = cmd.index("--mcp-config")
+        assert cmd[idx + 1] == "/data/agents/clickup/mcp.json"
+
+    def test_no_mcp_config_path_omits_flag(self):
+        """build_command without mcp_config_path → no --mcp-config flag."""
+        cmd = build_command("# Skill body")
+        assert "--mcp-config" not in cmd
+
 
 class TestLoadEnv:
     """Tests for load_env."""

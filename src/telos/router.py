@@ -45,7 +45,7 @@ def _parse_frontmatter(content: str) -> tuple[str, str]:
 
 
 def discover_skills(skills_dir: Path) -> list[Skill]:
-    """Discover all .md skill files in a directory.
+    """Discover all SKILL.md files in subdirectories.
 
     Returns a list of Skill objects sorted by name.
     """
@@ -53,11 +53,11 @@ def discover_skills(skills_dir: Path) -> list[Skill]:
         return []
 
     skills = []
-    for path in sorted(skills_dir.glob("*.md")):
+    for path in sorted(skills_dir.glob("*/SKILL.md")):
         content = path.read_text()
         description, body = _parse_frontmatter(content)
         skills.append(Skill(
-            name=path.stem,
+            name=path.parent.name,
             description=description,
             body=body,
         ))

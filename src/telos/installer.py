@@ -44,19 +44,36 @@ def read_agent_toml(pack_dir: Path) -> dict:
 
 
 def copy_skills(src_dir: Path, dest_dir: Path) -> int:
-    """Copy .md skill files from src to dest.
+    """Copy skill subdirectories (containing SKILL.md) from src to dest.
 
-    Creates dest_dir if needed. Ignores non-.md files.
-    Returns the number of files copied.
+    Creates dest_dir if needed. Each skill lives in a subdirectory with a
+    canonical SKILL.md file (e.g. src/standup/SKILL.md → dest/standup/SKILL.md).
+    Returns the number of skills copied.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     count = 0
     if not src_dir.exists():
         return 0
-    for path in sorted(src_dir.glob("*.md")):
-        shutil.copy2(path, dest_dir / path.name)
+    for path in sorted(src_dir.glob("*/SKILL.md")):
+        skill_name = path.parent.name
+        skill_dest = dest_dir / skill_name
+        skill_dest.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, skill_dest / "SKILL.md")
         count += 1
     return count
+
+
+def copy_mcp_config(pack_dir: Path, dest_dir: Path) -> bool:
+    """Copy mcp.json from pack directory to destination if present.
+
+    Returns True if copied, False if no mcp.json exists.
+    """
+    mcp_src = pack_dir / "mcp.json"
+    if not mcp_src.exists():
+        return False
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(mcp_src, dest_dir / "mcp.json")
+    return True
 
 
 def register_agent(
@@ -154,8 +171,12 @@ def install_agent(pack_dir: Path) -> InstallResult:
 
     # Copy skills
     skills_src = pack_dir / "skills"
-    skills_dest = data_dir / "agents" / agent_name / "skills"
+    agent_dest = data_dir / "agents" / agent_name
+    skills_dest = agent_dest / "skills"
     skill_count = copy_skills(skills_src, skills_dest)
+
+    # Copy MCP config if present
+    copy_mcp_config(pack_dir, agent_dest)
 
     # Register in registry
     registry_path = data_dir / "registry.toml"

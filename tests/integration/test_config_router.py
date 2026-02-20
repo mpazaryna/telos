@@ -16,8 +16,10 @@ class TestConfigToRouter:
         """Create a config and skills directory for testing."""
         skills_dir = tmp_path / "skills"
         skills_dir.mkdir()
-        (skills_dir / "kickoff.md").write_text("---\ndescription: Morning orientation\n---\n# Kickoff\nStart the day")
-        (skills_dir / "shutdown.md").write_text("---\ndescription: End of day wrap-up\n---\n# Shutdown\nWrap up")
+        (skills_dir / "kickoff").mkdir()
+        (skills_dir / "kickoff" / "SKILL.md").write_text("---\ndescription: Morning orientation\n---\n# Kickoff\nStart the day")
+        (skills_dir / "shutdown").mkdir()
+        (skills_dir / "shutdown" / "SKILL.md").write_text("---\ndescription: End of day wrap-up\n---\n# Shutdown\nWrap up")
 
         config = tmp_path / "agents.toml"
         config.write_text(f"""\

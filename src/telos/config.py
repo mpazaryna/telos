@@ -34,6 +34,7 @@ class Agent:
     skills_dir: Path | None
     working_dir: Path
     executor: str = "claude_code"
+    mcp_config: Path | None = None
 
     def __post_init__(self) -> None:
         # Validate linked mode requires skills_dir
@@ -44,9 +45,17 @@ class Agent:
         if self.mode == "installed" and self.skills_dir is None:
             self.skills_dir = get_data_dir() / f"agents/{self.name}/skills"
 
+        # Auto-derive mcp_config for installed mode if not explicitly set
+        if self.mode == "installed" and self.mcp_config is None:
+            candidate = get_data_dir() / f"agents/{self.name}/mcp.json"
+            if candidate.exists():
+                self.mcp_config = candidate
+
         # Expand tilde in paths
         if self.skills_dir is not None:
             self.skills_dir = self.skills_dir.expanduser()
+        if self.mcp_config is not None:
+            self.mcp_config = self.mcp_config.expanduser()
         self.working_dir = self.working_dir.expanduser()
 
 
@@ -69,6 +78,8 @@ def load_config(config_path: Path) -> tuple[dict[str, Agent], str]:
     for name, cfg in agents_data.items():
         skills_dir_raw = cfg.get("skills_dir")
         skills_dir = Path(skills_dir_raw) if skills_dir_raw else None
+        mcp_config_raw = cfg.get("mcp_config")
+        mcp_config = Path(mcp_config_raw) if mcp_config_raw else None
         agents[name] = Agent(
             name=name,
             mode=cfg["mode"],
@@ -76,6 +87,7 @@ def load_config(config_path: Path) -> tuple[dict[str, Agent], str]:
             skills_dir=skills_dir,
             working_dir=Path(cfg.get("working_dir", ".")),
             executor=cfg.get("executor", "claude_code"),
+            mcp_config=mcp_config,
         )
 
     if default_agent and default_agent not in agents:

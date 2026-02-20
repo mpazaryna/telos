@@ -2,10 +2,10 @@
 default_agent = "kairos"
 
 [agents.kairos]
-mode        = "linked"
+mode        = "installed"
 description = "Personal productivity system — daily notes, weekly/monthly summaries, load tracking"
-skills_dir  = "~/Documents/ObsidianVault/.claude/commands"
-working_dir = "~/Documents/ObsidianVault"
+# skills_dir is implicit: ~/.local/share/telos/agents/kairos/skills/
+working_dir = "~/obsidian"
 executor    = "claude_code"
 
 [agents.gmail]

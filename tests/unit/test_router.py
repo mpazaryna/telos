@@ -22,16 +22,19 @@ class TestSkill:
 class TestDiscoverSkills:
     """Tests for discover_skills."""
 
-    def test_discovers_md_files(self, tmp_path):
-        (tmp_path / "kickoff.md").write_text("---\ndescription: Morning orientation\n---\n# Kickoff\nBody")
-        (tmp_path / "shutdown.md").write_text("---\ndescription: End of day\n---\n# Shutdown\nBody")
+    def test_discovers_skill_subdirs(self, tmp_path):
+        (tmp_path / "kickoff").mkdir()
+        (tmp_path / "kickoff" / "SKILL.md").write_text("---\ndescription: Morning orientation\n---\n# Kickoff\nBody")
+        (tmp_path / "shutdown").mkdir()
+        (tmp_path / "shutdown" / "SKILL.md").write_text("---\ndescription: End of day\n---\n# Shutdown\nBody")
         skills = discover_skills(tmp_path)
         assert len(skills) == 2
         names = {s.name for s in skills}
         assert names == {"kickoff", "shutdown"}
 
-    def test_ignores_non_md_files(self, tmp_path):
-        (tmp_path / "kickoff.md").write_text("---\ndescription: Test\n---\nBody")
+    def test_ignores_non_skill_dirs(self, tmp_path):
+        (tmp_path / "kickoff").mkdir()
+        (tmp_path / "kickoff" / "SKILL.md").write_text("---\ndescription: Test\n---\nBody")
         (tmp_path / "README.txt").write_text("Not a skill")
         (tmp_path / ".DS_Store").write_text("junk")
         skills = discover_skills(tmp_path)
@@ -39,25 +42,29 @@ class TestDiscoverSkills:
         assert skills[0].name == "kickoff"
 
     def test_extracts_frontmatter_description(self, tmp_path):
-        (tmp_path / "kickoff.md").write_text(
+        (tmp_path / "kickoff").mkdir()
+        (tmp_path / "kickoff" / "SKILL.md").write_text(
             "---\ndescription: Quick morning orientation. Surface what matters, set focus.\n---\n# Kickoff"
         )
         skills = discover_skills(tmp_path)
         assert skills[0].description == "Quick morning orientation. Surface what matters, set focus."
 
     def test_missing_description_uses_placeholder(self, tmp_path, capsys):
-        (tmp_path / "experimental.md").write_text("---\ntags: test\n---\n# Experimental\nBody")
+        (tmp_path / "experimental").mkdir()
+        (tmp_path / "experimental" / "SKILL.md").write_text("---\ntags: test\n---\n# Experimental\nBody")
         skills = discover_skills(tmp_path)
         assert skills[0].description == "(no description)"
 
     def test_missing_frontmatter_entirely(self, tmp_path):
-        (tmp_path / "simple.md").write_text("# Simple\nJust a body")
+        (tmp_path / "simple").mkdir()
+        (tmp_path / "simple" / "SKILL.md").write_text("# Simple\nJust a body")
         skills = discover_skills(tmp_path)
         assert skills[0].description == "(no description)"
         assert "# Simple\nJust a body" in skills[0].body
 
     def test_body_extracted_without_frontmatter(self, tmp_path):
-        (tmp_path / "kickoff.md").write_text("---\ndescription: Test\n---\n# Kickoff\nDo the thing")
+        (tmp_path / "kickoff").mkdir()
+        (tmp_path / "kickoff" / "SKILL.md").write_text("---\ndescription: Test\n---\n# Kickoff\nDo the thing")
         skills = discover_skills(tmp_path)
         assert skills[0].body.strip() == "# Kickoff\nDo the thing"
 

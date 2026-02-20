@@ -10,6 +10,7 @@ import tomllib
 from telos.installer import (
     read_agent_toml,
     copy_skills,
+    copy_mcp_config,
     register_agent,
     unregister_agent,
     merge_agent_config,
@@ -51,31 +52,35 @@ class TestReadAgentToml:
 class TestCopySkills:
     """Tests for copy_skills."""
 
-    def test_copies_md_files(self, tmp_path):
+    def test_copies_skill_subdirs(self, tmp_path):
         src = tmp_path / "pack" / "skills"
         src.mkdir(parents=True)
-        (src / "check-email.md").write_text("---\ndescription: Check\n---\nBody")
-        (src / "send-reply.md").write_text("---\ndescription: Send\n---\nBody")
+        (src / "check-email").mkdir()
+        (src / "check-email" / "SKILL.md").write_text("---\ndescription: Check\n---\nBody")
+        (src / "send-reply").mkdir()
+        (src / "send-reply" / "SKILL.md").write_text("---\ndescription: Send\n---\nBody")
 
         dest = tmp_path / "installed"
         count = copy_skills(src, dest)
         assert count == 2
-        assert (dest / "check-email.md").exists()
-        assert (dest / "send-reply.md").exists()
+        assert (dest / "check-email" / "SKILL.md").exists()
+        assert (dest / "send-reply" / "SKILL.md").exists()
 
     def test_creates_dest_dirs(self, tmp_path):
         src = tmp_path / "pack" / "skills"
         src.mkdir(parents=True)
-        (src / "skill.md").write_text("Body")
+        (src / "skill").mkdir()
+        (src / "skill" / "SKILL.md").write_text("Body")
 
         dest = tmp_path / "deep" / "nested" / "dest"
         copy_skills(src, dest)
         assert dest.exists()
 
-    def test_ignores_non_md_files(self, tmp_path):
+    def test_ignores_non_skill_dirs(self, tmp_path):
         src = tmp_path / "pack" / "skills"
         src.mkdir(parents=True)
-        (src / "skill.md").write_text("Body")
+        (src / "skill").mkdir()
+        (src / "skill" / "SKILL.md").write_text("Body")
         (src / "README.txt").write_text("Not a skill")
         (src / ".DS_Store").write_text("junk")
 
@@ -240,15 +245,17 @@ class TestInstallAgent:
         (pack_dir / "agent.toml").write_text('name = "gmail"\ndescription = "Gmail agent"\nworking_dir = "."\n')
         skills_src = pack_dir / "skills"
         skills_src.mkdir()
-        (skills_src / "check.md").write_text("---\ndescription: Check\n---\nBody")
-        (skills_src / "send.md").write_text("---\ndescription: Send\n---\nBody")
+        (skills_src / "check").mkdir()
+        (skills_src / "check" / "SKILL.md").write_text("---\ndescription: Check\n---\nBody")
+        (skills_src / "send").mkdir()
+        (skills_src / "send" / "SKILL.md").write_text("---\ndescription: Send\n---\nBody")
 
         result = install_agent(pack_dir)
 
         assert isinstance(result, InstallResult)
         assert result.agent_name == "gmail"
         assert result.skill_count == 2
-        assert (tmp_path / "data" / "agents" / "gmail" / "skills" / "check.md").exists()
+        assert (tmp_path / "data" / "agents" / "gmail" / "skills" / "check" / "SKILL.md").exists()
 
     def test_install_creates_all_required_files(self, tmp_path, monkeypatch):
         monkeypatch.setenv("TELOS_DATA_DIR", str(tmp_path / "data"))
@@ -259,11 +266,62 @@ class TestInstallAgent:
         (pack_dir / "agent.toml").write_text('name = "gmail"\ndescription = "Gmail"\nworking_dir = "."\n')
         skills_src = pack_dir / "skills"
         skills_src.mkdir()
-        (skills_src / "check.md").write_text("Body")
+        (skills_src / "check").mkdir()
+        (skills_src / "check" / "SKILL.md").write_text("Body")
 
         install_agent(pack_dir)
 
         # Verify all outputs
-        assert (tmp_path / "data" / "agents" / "gmail" / "skills" / "check.md").exists()
+        assert (tmp_path / "data" / "agents" / "gmail" / "skills" / "check" / "SKILL.md").exists()
         assert (tmp_path / "data" / "registry.toml").exists()
         assert (tmp_path / "config" / "agents.toml").exists()
+
+    def test_install_with_mcp_json_copies_file(self, tmp_path, monkeypatch):
+        """install_agent with mcp.json present → file ends up in installed agent dir."""
+        monkeypatch.setenv("TELOS_DATA_DIR", str(tmp_path / "data"))
+        monkeypatch.setenv("TELOS_CONFIG_DIR", str(tmp_path / "config"))
+
+        pack_dir = tmp_path / "clickup-pack"
+        pack_dir.mkdir()
+        (pack_dir / "agent.toml").write_text('name = "clickup"\ndescription = "ClickUp"\nworking_dir = "."\n')
+        skills_src = pack_dir / "skills"
+        skills_src.mkdir()
+        (skills_src / "standup").mkdir()
+        (skills_src / "standup" / "SKILL.md").write_text("Body")
+        (pack_dir / "mcp.json").write_text('{"mcpServers": {}}')
+
+        result = install_agent(pack_dir)
+
+        mcp_dest = tmp_path / "data" / "agents" / "clickup" / "mcp.json"
+        assert mcp_dest.exists()
+        assert mcp_dest.read_text() == '{"mcpServers": {}}'
+
+
+class TestCopyMcpConfig:
+    """Tests for copy_mcp_config."""
+
+    def test_copies_mcp_json(self, tmp_path):
+        """copy_mcp_config copies mcp.json from pack to install dir."""
+        pack_dir = tmp_path / "pack"
+        pack_dir.mkdir()
+        (pack_dir / "mcp.json").write_text('{"mcpServers": {"test": {}}}')
+
+        dest_dir = tmp_path / "installed"
+        dest_dir.mkdir()
+
+        result = copy_mcp_config(pack_dir, dest_dir)
+        assert result is True
+        assert (dest_dir / "mcp.json").exists()
+        assert (dest_dir / "mcp.json").read_text() == '{"mcpServers": {"test": {}}}'
+
+    def test_no_mcp_json_returns_false(self, tmp_path):
+        """copy_mcp_config when no mcp.json exists → returns False, no error."""
+        pack_dir = tmp_path / "pack"
+        pack_dir.mkdir()
+
+        dest_dir = tmp_path / "installed"
+        dest_dir.mkdir()
+
+        result = copy_mcp_config(pack_dir, dest_dir)
+        assert result is False
+        assert not (dest_dir / "mcp.json").exists()

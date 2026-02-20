@@ -122,7 +122,13 @@ def _handle_request(
         return
 
     env_path = get_config_dir() / ".env"
-    execute_skill(matched.body, working_dir=selected.working_dir, env_path=env_path, user_request=request)
+    execute_skill(
+        matched.body,
+        working_dir=selected.working_dir,
+        env_path=env_path,
+        user_request=request,
+        mcp_config_path=selected.mcp_config,
+    )
 
 
 @app.callback(invoke_without_command=True)
@@ -188,7 +194,7 @@ def agents() -> None:
     for name, agent_obj in sorted(all_agents.items()):
         skill_count = 0
         if agent_obj.skills_dir and agent_obj.skills_dir.exists():
-            skill_count = len(list(agent_obj.skills_dir.glob("*.md")))
+            skill_count = len(list(agent_obj.skills_dir.glob("*/SKILL.md")))
         default_marker = " *" if name == default_agent else ""
         table.add_row(
             f"{name}{default_marker}",

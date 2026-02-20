@@ -16,7 +16,8 @@ class TestFullPipeline:
     def _setup_full(self, tmp_path):
         skills_dir = tmp_path / "skills"
         skills_dir.mkdir()
-        (skills_dir / "kickoff.md").write_text(
+        (skills_dir / "kickoff").mkdir()
+        (skills_dir / "kickoff" / "SKILL.md").write_text(
             "---\ndescription: Morning orientation\n---\n# Kickoff\nStart the day"
         )
         config = tmp_path / "agents.toml"
@@ -100,3 +101,32 @@ working_dir = "{tmp_path}"
         assert "# Kickoff" in cmd[2]
         # User request is appended
         assert "run kickoff and focus on the API refactor" in cmd[2]
+
+    @patch("telos.executor.subprocess.run")
+    def test_full_pipeline_with_mcp_config(self, mock_run, tmp_path):
+        """Full pipeline with mcp_config: load config → route → execute_skill
+        receives mcp_config_path → subprocess command includes --mcp-config."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        # Create mcp.json in the agent's data dir
+        mcp_json = tmp_path / "mcp.json"
+        mcp_json.write_text('{"mcpServers": {}}')
+
+        config = self._setup_full(tmp_path)
+        agents, default_agent = load_config(config)
+        agent = agents[default_agent]
+        skills = discover_skills(agent.skills_dir)
+        result = route_intent("run kickoff", skills)
+        assert result is not None
+
+        execute_skill(
+            result.body,
+            working_dir=agent.working_dir,
+            mcp_config_path=mcp_json,
+        )
+
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert "--mcp-config" in cmd
+        idx = cmd.index("--mcp-config")
+        assert cmd[idx + 1] == str(mcp_json)

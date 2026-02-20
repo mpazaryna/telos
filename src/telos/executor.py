@@ -12,12 +12,20 @@ from rich.console import Console
 console = Console(stderr=True)
 
 
-def build_command(skill_body: str, user_request: str | None = None) -> list[str]:
+def build_command(
+    skill_body: str,
+    user_request: str | None = None,
+    mcp_config_path: Path | None = None,
+) -> list[str]:
     """Build the claude CLI command from skill body and optional user request."""
     prompt = skill_body
     if user_request:
         prompt = f"{skill_body}\n\n---\nUser request: {user_request}"
-    return ["claude", "-p", prompt]
+    cmd = ["claude"]
+    if mcp_config_path is not None:
+        cmd.extend(["--mcp-config", str(mcp_config_path)])
+    cmd.extend(["-p", prompt])
+    return cmd
 
 
 def load_env(env_path: Path) -> dict[str, str]:
@@ -62,13 +70,14 @@ def execute_skill(
     working_dir: Path,
     env_path: Path | None = None,
     user_request: str | None = None,
+    mcp_config_path: Path | None = None,
 ) -> None:
     """Execute a skill via Claude Code subprocess.
 
     Inherits stdin/stdout/stderr for interactive use.
     Raises SystemExit on errors.
     """
-    cmd = build_command(skill_body, user_request=user_request)
+    cmd = build_command(skill_body, user_request=user_request, mcp_config_path=mcp_config_path)
     cwd = resolve_working_dir(working_dir)
 
     env = None
