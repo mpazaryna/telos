@@ -1,20 +1,20 @@
-# telos CLI — Formal Build Specification
+# telos CLI — Build Specification
 
-**Version:** 2.0
-**Date:** 2026-02-20
+**Version:** 3.0
+**Date:** 2026-02-21
 **CLI Name:** `telos`
-**Status:** Approved for Implementation
+**Status:** Implemented
 
 ---
 
 ## Purpose
 
-Build a lightweight Python CLI called `telos` that acts as a personal agent runtime.
-It accepts natural language input, routes intent to the correct skill for the correct
-agent, and executes that skill via Claude Code — from anywhere on the filesystem.
+A lightweight Python CLI that acts as a personal agent runtime. It accepts natural
+language input, routes intent to the correct skill for the correct agent, and executes
+that skill via direct LLM API calls with streaming — from anywhere on the filesystem.
 
-This replaces the need to `cd` into a specific directory and invoke Claude Code slash
-commands manually. The user speaks naturally; the CLI handles routing and execution.
+The user speaks naturally; the CLI handles routing, provider selection, tool execution,
+and output persistence.
 
 ---
 
@@ -22,28 +22,149 @@ commands manually. The user speaks naturally; the CLI handles routing and execut
 
 ### Agent
 A named profile representing a domain of work. Each agent has:
-- A **skills directory** containing `.md` skill files
-- A **working directory** where Claude Code is invoked
+- A **skills directory** containing `SKILL.md` files in subdirectories
+- A **working directory** where file operations are rooted
 - A **mode**: `linked` (reads live from an external directory, e.g. Obsidian vault) or
   `installed` (skills managed by telos in `~/.local/share/telos/agents/`)
+- An optional **MCP config** (`mcp.json`) for external tool servers
 
 ### Skill
-A markdown file with YAML frontmatter containing a `description:` field and a prompt
-body. The description is used for intent routing. The body is passed to Claude Code
-for execution.
+A markdown file (`SKILL.md`) inside a named subdirectory, with YAML frontmatter
+containing a `description:` field and a prompt body. The description is used for intent
+routing. The body is sent to the LLM provider for execution.
 
 ### Intent Routing
 Two-pass process:
-1. **Keyword match** — if the input contains an exact skill filename (e.g. `kickoff`),
-   match directly with no API call.
+1. **Keyword match** — if the input contains an exact skill name (e.g. `kickoff`),
+   match directly with no API call. Matches longest name first to avoid collisions.
 2. **Claude API match** — if no keyword match, send the skill manifest + user input to
    `claude-sonnet-4-6` with `max_tokens: 64` to get the skill name. Requires
    `ANTHROPIC_API_KEY` in environment.
 
 ### Execution
-Skills are executed by shelling out to the `claude` CLI (Claude Code), with `cwd` set
-to the agent's `working_dir`. Claude Code authenticates via the user's existing Max
-subscription OAuth. No new auth setup required.
+Skills are executed via direct LLM API calls using a **Provider** abstraction. The
+provider streams tokens to stdout and executes tool calls in a loop (up to 20 rounds).
+Built-in tools (file I/O, URL fetching) are always available. MCP tools are added when
+the agent has an `mcp.json` config.
+
+### Output Convention
+Agents that produce artifacts write to `~/telos/<agent-name>/` with dated filenames
+(e.g. `2026-02-21-frontpage.md`). This is configured via `working_dir` in `agent.toml`.
+Linked agents (e.g. kairos → Obsidian) write to their own directory instead.
+
+---
+
+## Provider Architecture
+
+### Provider Protocol
+```python
+class Provider(Protocol):
+    def stream_completion(
+        self,
+        system: str,
+        messages: list[dict],
+        tools: list[ToolDefinition] | None = None,
+        max_tokens: int = 16384,
+    ) -> Generator[StreamEvent, None, None]: ...
+```
+
+All providers yield `StreamEvent` objects: `text` (streamed tokens), `tool_call`
+(tool invocation), or `done` (completion with stop reason).
+
+### AnthropicProvider
+Default provider. Uses the `anthropic` SDK with `client.messages.stream()`. Default
+model: `claude-haiku-4-5` (configurable via `TELOS_MODEL`).
+
+### OllamaProvider
+Local/offline provider. Uses the `openai` SDK against Ollama's OpenAI-compatible
+endpoint at `http://localhost:11434/v1`. Includes message format translation from
+Anthropic's `tool_use`/`tool_result` blocks to OpenAI's `tool_calls`/`role: "tool"`
+format.
+
+### Provider Selection
+Controlled by environment variables:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `TELOS_PROVIDER` | `anthropic` | Provider backend: `anthropic` or `ollama` |
+| `TELOS_MODEL` | `claude-haiku-4-5` (anthropic), `llama3.1` (ollama) | Model name |
+| `ANTHROPIC_API_KEY` | — | Required for Anthropic provider |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama endpoint |
+
+---
+
+## Built-in Tools
+
+Every skill execution has access to these tools, regardless of provider:
+
+| Tool | Description |
+|------|-------------|
+| `write_file` | Write content to a file. Creates parent directories if needed. |
+| `read_file` | Read the contents of a file. |
+| `list_directory` | List files and subdirectories. |
+| `fetch_url` | Fetch content from a URL. Returns the response body as text. |
+
+All file paths are resolved relative to the agent's `working_dir`.
+
+---
+
+## MCP Integration
+
+Agents can declare external tool servers via `mcp.json`. When present, MCP tools are
+available alongside built-in tools during execution.
+
+### mcp.json Format
+```json
+{
+  "mcpServers": {
+    "clickup": {
+      "url": "https://mcp.clickup.com/mcp",
+      "type": "http",
+      "headers": {
+        "Authorization": "Bearer ${CLICKUP_API_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+### Supported Transports
+- `sse` — Server-Sent Events (legacy)
+- `http` / `streamable-http` — Streamable HTTP (preferred)
+
+Header values support `${VAR}` interpolation from the loaded environment.
+
+### Tool Dispatch
+During execution, each tool call is routed:
+- Built-in tool names → `_execute_builtin_tool()` (sync, local)
+- All other names → MCP session `call_tool()` (async, remote)
+
+---
+
+## Logging
+
+Every skill execution is logged to per-day JSONL files at
+`~/.local/share/telos/logs/YYYY-MM-DD.jsonl`.
+
+### Event Types
+
+**skill_start** — emitted when execution begins:
+```json
+{"ts": "...", "event": "skill_start", "provider": "anthropic", "model": "claude-haiku-4-5", "has_mcp": false}
+```
+
+**tool_call** — emitted for each tool invocation:
+```json
+{"ts": "...", "event": "tool_call", "tool": "fetch_url", "is_error": false}
+```
+
+**skill_end** — emitted when execution completes:
+```json
+{"ts": "...", "event": "skill_end", "duration_s": 4.23, "rounds": 3, "tool_calls": 2, "error": null, "messages": [...]}
+```
+
+The `messages` array in `skill_end` contains the full conversation history for
+debugging and analysis.
 
 ---
 
@@ -52,118 +173,103 @@ subscription OAuth. No new auth setup required.
 ### Linked Mode
 For agents backed by an external directory the user actively edits (e.g. an Obsidian
 vault). Skills are read live on every invocation — no sync, no cache, no install step.
-Editing a skill file in the source directory is immediately reflected in telos.
-
-Use linked mode when:
-- Skills live in a repo or vault the user edits directly
-- Live iteration matters more than version control
-- The external directory has its own structure that shouldn't be duplicated
 
 ### Installed Mode
 For agents whose skills are managed by telos. Skills are installed to
-`~/.local/share/telos/agents/{agent-name}/skills/` via the `telos install` command.
-This decouples the skill source (Agentic Factory, a git repo, a marketplace) from the
-runtime.
-
-Use installed mode when:
-- Skills come from an external source (npm-style install, git repo, local package)
-- The user doesn't need to live-edit the skill files
-- Portability and reproducibility matter
+`~/.local/share/telos/agents/{agent-name}/skills/` via `telos install`. MCP configs
+are auto-detected from the agent's data directory.
 
 ---
 
 ## Install Model
 
-### Skill Package Format
-A skill package is a directory containing:
+### Agent Pack Format
 ```
 my-agent-pack/
-├── agent.toml          # agent metadata (name, description, working_dir)
-├── skills/
-│   ├── check-email.md
-│   ├── send-reply.md
-│   └── triage.md
+├── agent.toml
+├── mcp.json            # optional — MCP server config
+└── skills/
+    ├── check-email/
+    │   └── SKILL.md
+    └── triage/
+        └── SKILL.md
 ```
 
 The `agent.toml` manifest:
 ```toml
-name = "gmail"
-description = "Gmail query and triage"
-working_dir = "."
-executor = "claude_code"
+name = "hackernews"
+description = "Hacker News reader — frontpage summaries and trending topics"
+working_dir = "~/telos/hackernews"
 ```
 
-When installed, telos sets `mode = "installed"` automatically. The `executor` field
-defaults to `"claude_code"` if omitted.
+When installed, telos sets `mode = "installed"` automatically.
 
 When `working_dir` is `"."`, telos uses the current working directory at invocation
-time. When it's an absolute path, that path is used regardless of where telos is called.
+time. When it's a path like `~/telos/hackernews`, that path is used and created on
+first write.
 
 ### Install Locations
 
 | Path | Purpose |
 |------|---------|
 | `~/.config/telos/` | Configuration (agents.toml, .env) |
-| `~/.local/share/telos/agents/{name}/skills/` | Installed agent skill files |
-| `~/.local/share/telos/registry.toml` | Tracks installed agents and versions |
+| `~/.local/share/telos/agents/{name}/skills/` | Installed skill files |
+| `~/.local/share/telos/agents/{name}/mcp.json` | Installed MCP config |
+| `~/.local/share/telos/registry.toml` | Tracks installed agents |
+| `~/.local/share/telos/logs/` | Per-day JSONL execution logs |
+| `~/telos/{agent-name}/` | Agent output files (convention) |
 
 ### Install Sources (v1)
-
 ```bash
 telos install ./path/to/agent-pack     # local directory
-telos install gh:user/repo             # GitHub repo (future)
-telos install marketplace:gmail-pro    # marketplace registry (future)
 ```
-
-For v1, only local directory install is required. GitHub and marketplace sources are
-reserved for future versions.
 
 ### Install Behavior
-
 When `telos install ./my-agent-pack` is run:
 1. Read `agent.toml` from the source directory
-2. Copy skill `.md` files to `~/.local/share/telos/agents/{name}/skills/`
-3. Register the agent in `~/.local/share/telos/registry.toml`
-4. Merge agent config into `~/.config/telos/agents.toml`
-5. Print summary: agent name, skill count, install path
-
-If the agent already exists, prompt for confirmation before overwriting.
+2. Copy `skills/*/SKILL.md` to `~/.local/share/telos/agents/{name}/skills/`
+3. Copy `mcp.json` if present
+4. Register in `~/.local/share/telos/registry.toml`
+5. Merge agent config into `~/.config/telos/agents.toml`
+6. Print summary: agent name, skill count, install path
 
 ### Uninstall
-
 ```bash
-telos uninstall gmail
+telos uninstall hackernews
 ```
-
-Removes the agent's skill directory from `~/.local/share/telos/agents/` and its
-stanza from `agents.toml`. Prompts for confirmation.
+Removes skills directory, registry entry, and config stanza. Prompts for confirmation.
+Blocks on linked agents (must edit agents.toml manually).
 
 ---
 
-## Three Initial Agents
+## Current Agents
 
-| Agent    | Mode      | Description                                      |
-|----------|-----------|--------------------------------------------------|
-| kairos   | linked    | Personal productivity — daily notes, weekly/monthly summaries, load tracking. Skills live in Obsidian vault at `.claude/commands/`. |
-| gmail    | installed | Gmail query and triage. Skills managed by telos. |
-| clickup  | installed | ClickUp task review and status. Skills managed by telos. |
+| Agent | Mode | Description | Output Dir |
+|-------|------|-------------|------------|
+| kairos | linked | Personal productivity — daily notes, summaries, load tracking. Skills live in Obsidian vault. | Obsidian vault |
+| hackernews | installed | Hacker News frontpage summaries. | `~/telos/hackernews/` |
+| clickup | installed | ClickUp task review and project standup (via MCP). | `~/telos/clickup/` |
 
 ---
 
 ## Technology Stack
 
-| Concern              | Choice                        |
-|----------------------|-------------------------------|
-| Language             | Python 3.12+                  |
-| Package management   | `uv`                          |
-| CLI framework        | `typer`                       |
-| Terminal output      | `rich`                        |
-| TOML parsing         | `tomllib` (stdlib 3.11+)      |
-| TOML writing         | `tomli_w`                     |
-| API routing calls    | `anthropic` SDK               |
-| Skill execution      | `subprocess` → `claude` CLI   |
-| Config location      | `~/.config/telos/`            |
-| Data location        | `~/.local/share/telos/`       |
+| Concern | Choice |
+|---------|--------|
+| Language | Python 3.12+ |
+| Package management | `uv` |
+| CLI framework | `typer` |
+| Terminal output | `rich` |
+| TOML parsing | `tomllib` (stdlib) |
+| TOML writing | `tomli_w` |
+| API routing calls | `anthropic` SDK |
+| Skill execution | Direct API via Provider protocol |
+| Anthropic provider | `anthropic` SDK |
+| Ollama provider | `openai` SDK (OpenAI-compatible) |
+| MCP client | `mcp` SDK |
+| Logging | JSONL (stdlib `json`) |
+| Config location | `~/.config/telos/` |
+| Data location | `~/.local/share/telos/` |
 
 ---
 
@@ -173,26 +279,52 @@ stanza from `agents.toml`. Prompts for confirmation.
 telos/
 ├── pyproject.toml
 ├── uv.lock
-├── README.md
-├── config/
-│   └── agents.toml.example        # committed example; real config at ~/.config/telos/
-├── packs/                          # bundled agent packs for install
-│   ├── gmail/
+├── specs/
+│   └── bootstrap.md              # this file
+├── packs/                         # bundled agent packs
+│   ├── kairos/
 │   │   ├── agent.toml
 │   │   └── skills/
-│   │       └── check-email.md
+│   │       ├── kickoff/SKILL.md
+│   │       ├── shutdown/SKILL.md
+│   │       ├── interstitial/SKILL.md
+│   │       ├── weekly-plan/SKILL.md
+│   │       ├── weekly-review/SKILL.md
+│   │       ├── weekly-summary/SKILL.md
+│   │       └── monthly-summary/SKILL.md
+│   ├── hackernews/
+│   │   ├── agent.toml
+│   │   └── skills/
+│   │       └── frontpage/SKILL.md
 │   └── clickup/
 │       ├── agent.toml
+│       ├── mcp.json
 │       └── skills/
-│           └── task-review.md
+│           └── standup/SKILL.md
+├── tests/
+│   ├── unit/
+│   │   ├── test_config.py
+│   │   ├── test_router.py
+│   │   ├── test_executor.py
+│   │   ├── test_installer.py
+│   │   ├── test_provider.py
+│   │   ├── test_mcp_client.py
+│   │   └── test_logger.py
+│   └── integration/
+│       └── test_pipeline.py
 └── src/
     └── telos/
         ├── __init__.py
-        ├── main.py                # Typer app, all CLI commands
-        ├── config.py              # agents.toml loading and Agent dataclass
-        ├── router.py              # skill discovery and intent routing
-        ├── executor.py            # Claude Code subprocess execution
-        └── installer.py           # agent pack install/uninstall logic
+        ├── __main__.py
+        ├── main.py               # Typer app, all CLI commands
+        ├── config.py             # agents.toml loading, Agent dataclass
+        ├── router.py             # skill discovery, intent routing
+        ├── executor.py           # skill execution engine, tool loops
+        ├── provider.py           # Provider protocol, Anthropic + Ollama
+        ├── mcp_client.py         # MCP SSE/HTTP client
+        ├── logger.py             # per-day JSONL logging
+        ├── installer.py          # agent pack install/uninstall
+        └── interactive.py        # interactive agent/skill selection
 ```
 
 ---
@@ -211,26 +343,23 @@ dependencies = [
     "rich>=13.0",
     "anthropic>=0.40",
     "tomli_w>=1.0",
+    "mcp>=1.0",
+    "openai>=1.0",
 ]
 
 [project.scripts]
 telos = "telos.main:app"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.0",
+    "pytest-asyncio>=0.23",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-```
-
-Install for development:
-```bash
-uv sync
-uv run telos --help
-```
-
-Install globally:
-```bash
-uv tool install .
-telos --help
 ```
 
 ---
@@ -246,41 +375,48 @@ default_agent = "kairos"
 
 [agents.kairos]
 mode        = "linked"
-description = "Personal productivity system — daily notes, weekly/monthly summaries, load tracking"
+description = "Personal productivity system — daily notes, weekly/monthly summaries"
 skills_dir  = "~/Documents/ObsidianVault/.claude/commands"
 working_dir = "~/Documents/ObsidianVault"
-executor    = "claude_code"
 
-[agents.gmail]
+[agents.hackernews]
 mode        = "installed"
-description = "Gmail query and triage"
-# skills_dir is implicit: ~/.local/share/telos/agents/gmail/skills/
-working_dir = "."
-executor    = "claude_code"
+description = "Hacker News reader — frontpage summaries and trending topics"
+# skills_dir is implicit: ~/.local/share/telos/agents/hackernews/skills/
+working_dir = "~/telos/hackernews"
 
 [agents.clickup]
 mode        = "installed"
 description = "ClickUp task review and project status"
 # skills_dir is implicit: ~/.local/share/telos/agents/clickup/skills/
-working_dir = "."
-executor    = "claude_code"
+# mcp_config is auto-detected: ~/.local/share/telos/agents/clickup/mcp.json
+working_dir = "~/telos/clickup"
 ```
 
 **Field definitions:**
 - `mode`: `"linked"` reads from an explicit `skills_dir` path; `"installed"` reads
   from `~/.local/share/telos/agents/{name}/skills/`.
-- `skills_dir`: Required for linked agents. Ignored for installed agents (path is
-  derived from the agent name).
-- `working_dir`: Directory Claude Code is invoked from. For `linked` agents, this
-  must be the vault root so relative paths in skills resolve. For `installed` agents,
-  `"."` resolves to the user's current working directory at invocation time.
-- `executor`: Always `"claude_code"` in v1. Reserved for future extensibility.
+- `skills_dir`: Required for linked agents. Ignored for installed agents (derived).
+- `working_dir`: Directory where file tool operations are rooted. For installed agents,
+  `~/telos/{name}` is the convention for persistent output.
+- `mcp_config`: Optional path to `mcp.json`. Auto-detected for installed agents if
+  the file exists in the agent's data directory.
 
 ---
 
 ## Skill File Format
 
-Every skill file must have YAML frontmatter with a `description` field:
+Skills live in named subdirectories as `SKILL.md`:
+
+```
+skills/
+├── kickoff/
+│   └── SKILL.md
+├── standup/
+│   └── SKILL.md
+```
+
+Every `SKILL.md` must have YAML frontmatter with a `description` field:
 
 ```markdown
 ---
@@ -290,22 +426,30 @@ description: Quick morning orientation. Surface what matters, set focus.
 # Kickoff
 
 [full skill prompt body here]
+
+## Save output
+After printing, also write to a file named `YYYY-MM-DD-kickoff.md`.
 ```
 
-Skills without `description` frontmatter are registered with a warning and description
+Skills without `description` frontmatter are registered with description
 `"(no description)"`.
 
 ---
 
 ## Environment Variables
 
-| Variable          | Required | Purpose                                              |
-|-------------------|----------|------------------------------------------------------|
-| `ANTHROPIC_API_KEY` | No     | Enables Claude API intent routing (Pass 2). Without it, keyword-only routing (Pass 1). |
-| `CLICKUP_API_KEY`   | No     | Required by clickup agent skills at execution time.  |
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `ANTHROPIC_API_KEY` | Yes (for Anthropic) | API key for routing and execution |
+| `TELOS_PROVIDER` | No | Provider backend: `anthropic` (default) or `ollama` |
+| `TELOS_MODEL` | No | Override model name |
+| `OLLAMA_BASE_URL` | No | Ollama endpoint (default: `http://localhost:11434/v1`) |
+| `CLICKUP_API_TOKEN` | No | Required by clickup MCP server |
+| `TELOS_CONFIG_DIR` | No | Override config directory |
+| `TELOS_DATA_DIR` | No | Override data directory |
 
-Optional `.env` file at `~/.config/telos/.env` is loaded into every subprocess
-environment before Claude Code is invoked.
+Optional `.env` file at `~/.config/telos/.env` is loaded into the environment before
+provider creation and MCP header interpolation.
 
 ---
 
@@ -313,6 +457,7 @@ environment before Claude Code is invoked.
 
 ### Core
 ```
+telos                               # launch interactive mode
 telos "<request>"                    # run request against default agent
 telos --agent <name> "<request>"    # run request against named agent
 telos --dry-run "<request>"         # show matched skill, do not execute
@@ -326,16 +471,55 @@ telos list-skills --agent <name>    # list skills for named agent
 telos agents                         # list all registered agents
 ```
 
-### Agent & Skill Management
+### Agent Management
 ```
 telos install <path>                 # install agent pack from local directory
 telos uninstall <agent-name>         # remove installed agent and its skills
-telos skill add --agent <name> <skill-name>  # add a starter skill file
 ```
 
 ### Setup
 ```
 telos init                           # create starter config at ~/.config/telos/
+```
+
+---
+
+## Execution Flow
+
+```
+User Input
+    │
+    ▼
+main.py: _handle_request()
+    ├── load agents.toml
+    ├── resolve agent (--agent flag or default)
+    ├── discover_skills() from skills_dir
+    ├── route_intent()
+    │   ├── keyword_match() — longest substring first
+    │   └── api_route() — Claude API if no keyword match
+    └── execute_skill()
+        │
+        ▼
+executor.py: execute_skill()
+    ├── load_env() from ~/.config/telos/.env
+    ├── _create_provider() → Anthropic or Ollama
+    ├── _build_prompt() — skill body + user request + timestamp
+    ├── log_skill_start()
+    └── _execute_simple() or _execute_with_mcp()
+        │
+        ▼
+    Tool-use loop (max 20 rounds):
+        ├── provider.stream_completion() → text + tool_calls
+        ├── stream text to stdout
+        ├── for each tool_call:
+        │   ├── built-in tool → _execute_builtin_tool()
+        │   └── MCP tool → mcp_ctx.call_tool()
+        │   └── log_tool_call()
+        ├── append results to messages
+        └── repeat until no tool_calls
+        │
+        ▼
+    log_skill_end() with duration, rounds, messages
 ```
 
 ---
@@ -352,28 +536,27 @@ Feature: telos CLI entrypoint
   I want to invoke any registered agent skill with natural language
   So that I can run agent commands from anywhere on the filesystem
 
-  Scenario: Invoke default agent with natural language
+  Scenario: Launch interactive mode with no arguments
     Given the CLI is installed and configured
-    And the default agent is "kairos"
+    When I run `telos` with no arguments
+    Then the CLI launches interactive mode
+    And displays a list of agents to choose from
+    And prompts for skill selection after agent is chosen
+
+  Scenario: Invoke default agent with natural language
+    Given the default agent is "kairos"
     When I run `telos "run daily kickoff"`
     Then the CLI routes the intent to the kairos agent
-    And executes the "kickoff" skill in the kairos working directory
-    And output streams to the terminal interactively
+    And executes the "kickoff" skill via the configured provider
+    And output streams to the terminal
 
   Scenario: Invoke a specific agent explicitly
-    Given agents "kairos", "gmail", and "clickup" are registered
-    When I run `telos --agent gmail "any new email from Mila"`
-    Then the CLI routes the intent to the gmail agent
-    And executes the matching gmail skill
-
-  Scenario: Whispr voice dictation passes through unchanged
-    Given Whispr is configured to type dictated text into the active terminal
-    When I dictate "write an interstitial on the chiro call with John"
-    Then the shell receives `telos "write an interstitial on the chiro call with John"`
-    And the CLI routes and executes correctly without any special handling
+    Given agents "kairos", "hackernews", and "clickup" are registered
+    When I run `telos --agent hackernews "frontpage"`
+    Then the CLI routes the intent to the hackernews agent
+    And executes the matching skill
 
   Scenario: No matching skill found
-    Given the kairos agent has skills: kickoff, shutdown, interstitial, weekly-summary, weekly-review, weekly-plan, monthly-summary
     When I run `telos "order me a pizza"`
     Then the CLI prints "No matching skill found for: 'order me a pizza'"
     And lists available skills for the default agent
@@ -382,7 +565,7 @@ Feature: telos CLI entrypoint
   Scenario: Dry run shows matched skill without executing
     When I run `telos --dry-run "run daily kickoff"`
     Then the CLI prints the matched agent name and skill name
-    And does not invoke Claude Code
+    And does not call the LLM provider
     And exits with status 0
 
   Scenario: Verbose mode shows routing details before executing
@@ -423,12 +606,17 @@ Feature: Agent registry via agents.toml
     And skills_dir is "~/Documents/ObsidianVault/.claude/commands"
     When the CLI loads the kairos agent
     Then it reads skills directly from the expanded absolute path
-    And does not copy or cache those files
 
   Scenario: Installed agent loads skills from managed location
-    Given the gmail agent has mode "installed"
-    When the CLI loads the gmail agent
-    Then it reads skills from ~/.local/share/telos/agents/gmail/skills/
+    Given the hackernews agent has mode "installed"
+    When the CLI loads the hackernews agent
+    Then it reads skills from ~/.local/share/telos/agents/hackernews/skills/
+
+  Scenario: Installed agent auto-detects MCP config
+    Given the clickup agent has mode "installed"
+    And ~/.local/share/telos/agents/clickup/mcp.json exists
+    When the CLI loads the clickup agent
+    Then it sets mcp_config to the detected mcp.json path
 
   Scenario: Default agent used when no --agent flag provided
     Given agents.toml contains default_agent = "kairos"
@@ -441,25 +629,26 @@ Feature: Agent registry via agents.toml
 ### Feature: Skill Discovery
 
 ```gherkin
-Feature: Skill discovery from skills directory
+Feature: Skill discovery from SKILL.md subdirectories
   As a developer
-  I want the CLI to discover skills automatically from markdown files
+  I want the CLI to discover skills automatically from subdirectories
   So that I do not have to manually register each skill
 
-  Scenario: All .md files in skills_dir are registered as skills
+  Scenario: All SKILL.md files in subdirectories are registered
     Given the kairos skills_dir contains:
-      | kickoff.md         |
-      | shutdown.md        |
-      | interstitial.md    |
-      | weekly-summary.md  |
-      | weekly-review.md   |
-      | weekly-plan.md     |
-      | monthly-summary.md |
+      | kickoff/SKILL.md         |
+      | shutdown/SKILL.md        |
+      | interstitial/SKILL.md    |
+      | weekly-summary/SKILL.md  |
+      | weekly-review/SKILL.md   |
+      | weekly-plan/SKILL.md     |
+      | monthly-summary/SKILL.md |
     When the CLI loads the kairos agent
     Then all 7 skills are registered and available for routing
+    And each skill's name is the subdirectory name
 
   Scenario: Description is extracted from YAML frontmatter
-    Given a skill file contains:
+    Given a SKILL.md file contains:
       """
       ---
       description: Quick morning orientation. Surface what matters, set focus.
@@ -469,27 +658,19 @@ Feature: Skill discovery from skills directory
     When the skill is loaded
     Then its description is "Quick morning orientation. Surface what matters, set focus."
 
-  Scenario: Skill with missing description frontmatter is loaded with warning
-    Given a file "experimental.md" exists in skills_dir with no description field
+  Scenario: Skill with missing description is loaded gracefully
+    Given a subdirectory "experimental/SKILL.md" has no description field
     When the CLI loads the agent
     Then "experimental" is registered with description "(no description)"
-    And the CLI prints: "Warning: skill 'experimental' has no description — routing accuracy may be reduced"
 
-  Scenario: Non-.md files in skills_dir are ignored
-    Given skills_dir contains "kickoff.md" and "README.txt" and ".DS_Store"
-    When the CLI loads the agent
-    Then only "kickoff" is registered as a skill
-
-  Scenario: List skills for an agent in table format
+  Scenario: List skills in table format
     When I run `telos list-skills --agent kairos`
     Then the CLI prints a table with columns: Skill, Description
-    With one row per registered skill
     Sorted alphabetically by skill name
 
   Scenario: List all agents
     When I run `telos agents`
     Then the CLI prints a table with columns: Agent, Mode, Skills, Working Dir
-    With one row per registered agent
 ```
 
 ---
@@ -507,42 +688,30 @@ Feature: Intent routing to skills
     When I run `telos "kickoff"`
     Then the CLI matches via keyword pass
     And does not make an Anthropic API call
-    And routes to the kickoff skill
 
   Scenario: Partial phrase matches skill name without API call
     Given the kairos agent has a skill named "kickoff"
     When I run `telos "run daily kickoff"`
     Then the CLI detects "kickoff" in the input
-    And matches via keyword pass without an API call
+    And matches via keyword pass
+
+  Scenario: Longest match wins
+    Given skills named "weekly" and "weekly-summary" exist
+    When I run `telos "weekly-summary"`
+    Then "weekly-summary" is matched, not "weekly"
 
   Scenario: Natural language routes via Claude API
-    Given ANTHROPIC_API_KEY is set in the environment
-    And the kairos agent has skills with descriptions
+    Given ANTHROPIC_API_KEY is set
     When I run `telos "let's wrap up for the day"`
     Then the CLI sends a routing request to claude-sonnet-4-6
-    With a system prompt instructing it to return only a skill name or NONE
-    And the request body contains the skill manifest and user input
-    And max_tokens is 64
-    And the response "shutdown" is used to route to the shutdown skill
+    With max_tokens: 64
+    And the response is used to route to the matching skill
 
-  Scenario: Claude API returns NONE for unmatched input
-    Given ANTHROPIC_API_KEY is set
-    When the routing API call returns "NONE"
-    Then the CLI prints "No matching skill found for: '<input>'"
-    And lists available skills
-    And exits with a non-zero status code
-
-  Scenario: ANTHROPIC_API_KEY not set falls back to keyword-only routing
-    Given ANTHROPIC_API_KEY is not set in the environment
+  Scenario: ANTHROPIC_API_KEY not set falls back to keyword-only
+    Given ANTHROPIC_API_KEY is not set
     When I run `telos "let's wrap up for the day"`
     Then the CLI attempts keyword matching only
-    And if no keyword match is found, prints available skills
-    And exits with a non-zero status code
-
-  Scenario: Routing system prompt instructs single-word response
-    When a routing API call is made
-    Then the system prompt contains instructions to respond with ONLY the skill name
-    And nothing else — no explanation, no punctuation, no preamble
+    And if no match is found, prints available skills
 ```
 
 ---
@@ -550,84 +719,63 @@ Feature: Intent routing to skills
 ### Feature: Skill Execution
 
 ```gherkin
-Feature: Skill execution via Claude Code
+Feature: Skill execution via Provider API
   As a developer
-  I want matched skills to execute via Claude Code
-  So that my Max subscription is used and vault file paths resolve correctly
+  I want matched skills to execute via direct LLM API calls
+  So that execution is fast, provider-agnostic, and tool-capable
 
-  Scenario: Claude Code is invoked with correct working directory
-    Given the kairos agent working_dir is ~/Documents/ObsidianVault
-    When the kickoff skill executes
-    Then Claude Code is invoked with cwd set to ~/Documents/ObsidianVault
-    So that relative paths in the skill prompt resolve correctly
+  Scenario: Skill executes with Anthropic provider
+    Given TELOS_PROVIDER is "anthropic" (or unset)
+    When a skill executes
+    Then AnthropicProvider streams the response via the anthropic SDK
+    And text tokens are printed to stdout in real time
 
-  Scenario: Skill prompt body is passed to Claude Code
-    Given the kickoff skill file contains a prompt body after the frontmatter
-    When the skill executes
-    Then the full prompt body (excluding frontmatter) is passed to Claude Code
-    As the -p / --print argument
+  Scenario: Skill executes with Ollama provider
+    Given TELOS_PROVIDER is "ollama"
+    When a skill executes
+    Then OllamaProvider streams via the OpenAI-compatible API
+    And message format is translated from Anthropic to OpenAI internally
 
-  Scenario: Conversational skill stays interactive
-    Given the kickoff skill contains "What's your focus today?"
-    When the skill executes
-    Then Claude Code runs interactively with stdin and stdout connected to the terminal
-    And the session remains open until Claude Code completes
-
-  Scenario: Pipeline skill runs to completion without interaction
-    Given the weekly-summary skill requires no user input
-    When the skill executes
-    Then Claude Code runs to completion
-    And all output streams to the terminal
-    And the CLI exits cleanly when Claude Code finishes
-
-  Scenario: .env file is loaded into subprocess environment
-    Given ~/.config/telos/.env contains CLICKUP_API_KEY=xxxx
+  Scenario: Built-in tools are available
     When any skill executes
-    Then the .env file contents are merged into the subprocess environment
-    Before Claude Code is invoked
+    Then the model can call write_file, read_file, list_directory, fetch_url
+    And file paths resolve relative to the agent's working_dir
 
-  Scenario: Claude Code binary not found on PATH
-    Given the `claude` binary is not on the system PATH
-    When any skill attempts to execute
-    Then the CLI prints: "Claude Code not found. Install with: npm install -g @anthropic-ai/claude-code"
-    And exits with a non-zero status code
+  Scenario: Tool-use loop runs until completion
+    When the model returns tool_call events
+    Then telos executes each tool and returns results
+    And the model continues generating
+    And this repeats for up to 20 rounds
 
-  Scenario: Claude Code exits with non-zero status code
-    Given Claude Code encounters an error during execution
-    Then the CLI prints: "Claude Code exited with code <N>"
-    And exits with the same non-zero status code
-```
+  Scenario: MCP tools are available when mcp.json is configured
+    Given the clickup agent has an mcp.json
+    When the standup skill executes
+    Then MCP tools from the configured servers are available
+    And built-in tools are also available alongside MCP tools
 
----
+  Scenario: Prompt includes timestamp
+    When any skill executes
+    Then the prompt includes "Current date/time: YYYY-MM-DD HH:MM:SS TZ"
 
-### Feature: Linked Mode — Kairos
+  Scenario: User request is appended to prompt
+    When the user runs `telos "run kickoff and focus on the API refactor"`
+    Then the skill body is the base prompt
+    And "User request: run kickoff and focus on the API refactor" is appended
 
-```gherkin
-Feature: Kairos agent linked to Obsidian vault
-  As a developer using Kairos
-  I want the CLI to read skills directly from my Obsidian vault
-  So that editing skills in Obsidian is immediately reflected in the CLI
+  Scenario: .env file is loaded into execution environment
+    Given ~/.config/telos/.env contains ANTHROPIC_API_KEY=xxxx
+    When any skill executes
+    Then the .env values are loaded for provider creation and MCP headers
 
-  Scenario: Kairos skills are read live on every invocation
-    Given the kairos agent is in linked mode
-    And I edit kickoff.md in my Obsidian vault
-    When I next run `telos "run daily kickoff"`
-    Then the CLI reads the updated skill file
-    With no sync, cache, or reload step required
+  Scenario: Execution is logged to JSONL
+    When any skill executes
+    Then skill_start, tool_call, and skill_end events are written
+    To ~/.local/share/telos/logs/YYYY-MM-DD.jsonl
 
-  Scenario: Vault path is read from agents.toml not hardcoded
-    Given agents.toml contains skills_dir = "~/Documents/MyVault/.claude/commands"
-    And agents.toml contains working_dir = "~/Documents/MyVault"
-    When the CLI loads kairos
-    Then it uses the configured working_dir as the Claude Code cwd
-    And reads skills from the configured skills_dir
-
-  Scenario: Vault path does not exist on filesystem
-    Given the skills_dir path in agents.toml does not exist
-    When the CLI loads the agent
-    Then it prints: "Skills directory not found: <path>"
-    And prints: "Check the skills_dir value in ~/.config/telos/agents.toml"
-    And exits with a non-zero status code
+  Scenario: Execution errors are logged
+    Given the provider raises an exception
+    Then a skill_end event is logged with the error message
+    And the exception is re-raised
 ```
 
 ---
@@ -641,193 +789,98 @@ Feature: Install and manage agent packs
   So that I can add new agents without manual file management
 
   Scenario: Install agent pack from local directory
-    Given a directory ./gmail-pack/ contains agent.toml and skills/*.md
-    When I run `telos install ./gmail-pack`
-    Then the CLI reads agent.toml for agent metadata
-    And copies skill files to ~/.local/share/telos/agents/gmail/skills/
-    And registers the agent in ~/.local/share/telos/registry.toml
+    Given a directory ./hackernews/ contains agent.toml and skills/*/SKILL.md
+    When I run `telos install ./hackernews`
+    Then the CLI reads agent.toml for metadata
+    And copies SKILL.md files to ~/.local/share/telos/agents/hackernews/skills/
+    And copies mcp.json if present
+    And registers in ~/.local/share/telos/registry.toml
     And adds the agent stanza to ~/.config/telos/agents.toml
-    And prints: "Installed agent 'gmail' with 3 skills"
-
-  Scenario: Install overwrites existing agent with confirmation
-    Given the gmail agent is already installed
-    When I run `telos install ./gmail-pack-v2`
-    Then the CLI prints: "Agent 'gmail' is already installed. Overwrite? [y/N]"
-    And if confirmed, replaces the existing skills and updates config
-    And if denied, exits without changes
-
-  Scenario: Install from bundled packs directory
-    Given the telos project includes packs/gmail/ and packs/clickup/
-    When I run `telos install ./packs/gmail`
-    Then the agent is installed from the bundled pack
+    And prints: "Installed agent 'hackernews' with 1 skills"
 
   Scenario: Uninstall removes agent cleanly
-    Given the gmail agent is installed
-    When I run `telos uninstall gmail`
-    Then the CLI prints: "Remove agent 'gmail' and all its skills? [y/N]"
-    And if confirmed, deletes ~/.local/share/telos/agents/gmail/
-    And removes the gmail stanza from agents.toml
-    And prints: "Uninstalled agent 'gmail'"
+    Given the hackernews agent is installed
+    When I run `telos uninstall hackernews`
+    Then the CLI prompts for confirmation
+    And deletes ~/.local/share/telos/agents/hackernews/
+    And removes the config stanza and registry entry
 
   Scenario: Uninstall blocks on linked agents
     Given the kairos agent is in linked mode
     When I run `telos uninstall kairos`
-    Then the CLI prints: "Agent 'kairos' is linked, not installed. Remove it from agents.toml manually."
+    Then the CLI prints: "Agent 'kairos' is linked, not installed."
     And exits without changes
 
-  Scenario: List installed agents with install metadata
-    When I run `telos agents`
-    Then the table includes columns: Agent, Mode, Skills, Working Dir
-    And installed agents show skill count from the managed directory
-    And linked agents show skill count from the linked path
-
   Scenario: agent.toml missing from pack directory
-    Given a directory ./bad-pack/ has skills/ but no agent.toml
+    Given a directory has skills/ but no agent.toml
     When I run `telos install ./bad-pack`
-    Then the CLI prints: "No agent.toml found in ./bad-pack — not a valid agent pack."
+    Then the CLI prints: "No agent.toml found — not a valid agent pack."
     And exits with a non-zero status code
 ```
 
 ---
 
-### Feature: Installed Mode — Gmail and ClickUp
+### Feature: Interactive Mode
 
 ```gherkin
-Feature: Installed mode for managed agents
-  As a developer adding a new agent
-  I want telos to manage skill files in a standard location
-  So that I don't need to track where files live
+Feature: Interactive agent and skill selection
+  As a user
+  I want a guided interface when I don't know the exact command
+  So that I can browse agents and skills
 
-  Scenario: Installed agent skills live under ~/.local/share/telos/
-    Given the gmail agent has mode "installed"
-    When the CLI loads the gmail agent
-    Then it reads skills from ~/.local/share/telos/agents/gmail/skills/
+  Scenario: Launch interactive mode
+    When I run `telos` with no arguments
+    Then the CLI displays a numbered list of agents
+    And prompts me to select one
 
-  Scenario: Add a skill to an installed agent
-    When I run `telos skill add --agent gmail "send-reply"`
-    Then the file ~/.local/share/telos/agents/gmail/skills/send-reply.md is created
-    And it contains:
-      """
-      ---
-      description: [brief description of what this skill does]
-      ---
+  Scenario: Select agent then skill
+    Given I selected the kairos agent
+    Then the CLI displays a numbered list of kairos skills
+    And prompts me to select one
+    And offers dry-run (d) or execute (y)
 
-      # Send Reply
-
-      [skill prompt here]
-      """
-
-  Scenario: ClickUp skill requires API key surfaced gracefully
-    Given the clickup agent task-review skill uses CLICKUP_API_KEY
-    And CLICKUP_API_KEY is not set in environment or .env
-    When the skill executes
-    Then Claude Code surfaces the missing credential in its output
-    And the CLI additionally prints: "Tip: Add CLICKUP_API_KEY to ~/.config/telos/.env"
+  Scenario: Execute from interactive mode
+    Given I selected the kickoff skill and confirmed with 'y'
+    Then the skill executes normally via execute_skill()
 ```
 
 ---
 
-### Feature: Initialization
+## Implementation Notes
 
-```gherkin
-Feature: CLI initialization
-  As a new user
-  I want a guided init command
-  So that I do not have to hand-edit TOML before first use
+1. **Skill file convention** — Skills use `skills/<name>/SKILL.md` subdirectories,
+   not flat `.md` files. The subdirectory name is the skill name.
 
-  Scenario: Init creates config and data directories
-    Given ~/.config/telos/ does not exist
-    When I run `telos init`
-    Then the CLI creates ~/.config/telos/
-    And creates ~/.config/telos/agents.toml with commented stanza templates
-    And creates ~/.local/share/telos/agents/ directory
-    And prints: "Config created at ~/.config/telos/agents.toml"
-    And prints: "Edit it to register your agents, then run `telos agents` to verify."
+2. **No subprocess** — Execution is direct API calls, not `claude` CLI subprocess.
+   The `executor` field in agent.toml is vestigial and ignored.
 
-  Scenario: Init detects Obsidian vault with .claude/commands and offers to add kairos
-    Given ~/Documents/ObsidianVault/.claude/commands/ exists
-    When I run `telos init`
-    Then the CLI prints: "Found Obsidian vault at ~/Documents/ObsidianVault — add as kairos agent? [y/N]"
-    And if confirmed, writes the kairos stanza to agents.toml
+3. **Provider protocol** — `stream_completion()` is a sync Generator. The async
+   boundary exists only in MCP client connections.
 
-  Scenario: Init installs bundled packs if present
-    Given the telos project includes packs/gmail/ and packs/clickup/
-    When I run `telos init`
-    Then the CLI offers to install each bundled pack
-    And for each confirmed pack, runs the install flow
+4. **Message format** — Internal messages use Anthropic format (`tool_use`/
+   `tool_result` content blocks). OllamaProvider translates to OpenAI format
+   internally via `_convert_messages()`.
 
-  Scenario: Init does not overwrite existing config
-    Given ~/.config/telos/agents.toml already exists
-    When I run `telos init`
-    Then the CLI prints: "Config already exists at ~/.config/telos/agents.toml — not overwriting."
-    And exits cleanly without modifying the file
-```
+5. **Keyword matching** — longest skill name first to avoid partial collisions.
+
+6. **Frontmatter parsing** — simple string split on `---` delimiters. No YAML
+   library needed.
+
+7. **Rich** is used for all CLI output. Raw `print()` should not appear.
+
+8. **All path handling** uses `pathlib.Path`. Never string concatenation for paths.
+
+9. **uv is the only package manager**. All install instructions use `uv sync`.
+
+10. **TOML writing** — use `tomli_w`. Never string-concatenate TOML.
 
 ---
 
-## Implementation Notes for Claude Code
+## Future Considerations
 
-When implementing from this spec:
-
-1. **Start with project scaffold** — `pyproject.toml`, directory structure, empty
-   module files with docstrings.
-
-2. **Build and test in this order:**
-   - `config.py` — load agents.toml, parse Agent dataclass, handle missing file
-   - `router.py` — skill discovery from .md files, keyword pass, API pass
-   - `executor.py` — subprocess to `claude` CLI, .env loading, error handling
-   - `installer.py` — agent pack install/uninstall, registry management
-   - `main.py` — wire all commands with Typer
-
-3. **Test each module independently** before wiring into the CLI.
-
-4. **The kairos agent skills_dir must be configurable** — never hardcode a vault path.
-   The user will set it in agents.toml.
-
-5. **Keyword matching** uses `skill_name in user_input.lower()` across all registered
-   skill names for the selected agent. Match on the longest skill name first to avoid
-   partial collisions (e.g. `weekly-summary` before `weekly`).
-
-6. **Frontmatter parsing** uses a simple string split on `---` delimiters — no YAML
-   library needed. Extract only the `description:` field.
-
-7. **Claude Code subprocess** must inherit the parent process's stdin/stdout/stderr
-   so interactive skills work correctly. Do not use `capture_output=True`.
-
-8. **Rich** is used for all CLI output (tables, panels, warnings). Raw `print()`
-   should not appear in production code.
-
-9. **All path handling** uses `pathlib.Path` throughout. Never string concatenation
-   for paths.
-
-10. **uv is the only package manager** — do not use pip or poetry. All install
-    instructions use `uv sync` and `uv tool install`.
-
-11. **Installed mode path derivation** — for installed agents, the skills directory
-    is always `~/.local/share/telos/agents/{agent_name}/skills/`. This is derived
-    from the agent name, never stored in config.
-
-12. **TOML writing** — use `tomli_w` for writing to agents.toml and registry.toml.
-    Never string-concatenate TOML.
-
-13. **Registry tracking** — `~/.local/share/telos/registry.toml` tracks installed
-    agents with metadata (install date, source path, skill count) for `telos agents`
-    display and uninstall safety.
-
----
-
-## Relationship to Agentic Factory
-
-The [Agentic Factory](https://github.com/...) is a meta-generator system for building
-Claude Code components. It produces skill files with YAML frontmatter and markdown
-prompt bodies — the exact format telos consumes.
-
-The workflow:
-1. Use Agentic Factory to design and generate skills via guided `/build` workflows
-2. Package the generated `SKILL.md` files into an agent pack with an `agent.toml`
-3. Run `telos install ./my-agent-pack` to install them into the telos runtime
-4. Invoke skills naturally: `telos "check my email"` or `telos --agent clickup "what's overdue"`
-
-Agentic Factory is one source of agent packs. Others may include community repos,
-marketplace registries, or hand-authored skill files. telos is source-agnostic — it
-only cares about the skill file format and the agent pack structure.
+- **Additional providers** — Apple Foundation Models, OpenAI, etc. Just implement
+  `stream_completion()`.
+- **Cost tracking** — Parse token counts from provider responses, log to JSONL.
+- **`telos skill add`** — Scaffold a new SKILL.md in a subdirectory.
+- **Remote install sources** — `telos install gh:user/repo`.
+- **Guided init** — Detect Obsidian vaults, offer bundled pack installation.
