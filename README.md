@@ -1,23 +1,24 @@
 # telos
 
-A personal agent runtime. Route natural language to skills, execute via direct LLM calls — from anywhere on the filesystem.
-
-Telos is a lightweight Python CLI that sits between you and your LLM. You speak naturally; it routes your intent to the right skill, calls the API, executes tools, and streams the result. No 400K-line runtimes, no cloud dependencies, no config DSLs. Skills are markdown files. The core is under 1000 lines.
+A [clawbot](https://github.com/openclaw/skills) with its own engine. Compatible with the OpenClaw skill ecosystem, powered by direct API calls instead of Claude Code.
 
 ```
 telos "hacker news frontpage"
 telos --agent clickup "standup"
-telos "write an interstitial about the API refactor"
+telos --agent apple-calendar "list my calendars"
 ```
 
-## Why
+## What's a clawbot?
 
-LLM agents are powerful but the orchestration layer is a mess — bloated runtimes, vibe-coded monsters, security nightmares. Telos takes the opposite approach:
+A **claw** is a `SKILL.md` file — a markdown document that tells an LLM what to do, what tools to use, and how to format the output. The [OpenClaw](https://github.com/openclaw/skills) ecosystem is a growing library of community-contributed skills for everything from Apple Calendar to GitHub to Hacker News.
 
-- **Small enough to audit.** The entire engine fits in your head.
-- **Skills over config.** No YAML pipelines, no if-then-else monsters. A skill is a markdown file that tells the LLM what to do. Want to change how your standup report works? Edit the markdown.
+A **clawbot** is a runtime that executes claws. Most clawbots wrap `claude -p` (Claude Code as a subprocess). Telos takes a different approach: it calls the Anthropic API directly with its own tool-use loop and provider abstraction. Same skills, different engine.
+
+This means:
+- **No Claude Code dependency.** No 5-10s Node.js cold start per execution.
 - **Provider-agnostic.** Anthropic by default, Ollama for local/offline. Swap with one env var.
-- **Local-first.** Your keys stay in a local `.env`. Run against cloud APIs or a model on your desk.
+- **OpenClaw compatible.** Pull skills from the ecosystem and they just work — we ported [apple-calendar](https://github.com/openclaw/skills/tree/main/skills/tyler6204/apple-calendar) in minutes.
+- **Small enough to audit.** The entire engine is under 1000 lines of Python.
 
 ## How it works
 
@@ -114,6 +115,7 @@ An agent is a named profile with a skills directory and a working directory:
 | kairos | Personal productivity — daily notes, weekly summaries (Obsidian) | Obsidian vault |
 | hackernews | HN frontpage summaries | `~/telos/hackernews/` |
 | clickup | Project standup via MCP | `~/telos/clickup/` |
+| apple-calendar | Calendar.app integration (ported from OpenClaw) | stdout |
 
 Agents come in two modes:
 - **Linked** — skills live in an external directory (e.g. Obsidian vault), read live on every run
@@ -144,8 +146,9 @@ Every skill has access to:
 | `read_file` | Read file contents |
 | `list_directory` | List directory entries |
 | `fetch_url` | Fetch a URL and return the body |
+| `run_command` | Run a shell command (60s timeout) |
 
-File paths resolve relative to the agent's `working_dir`.
+File paths resolve relative to the agent's `working_dir`. Shell commands run in the same directory.
 
 ## MCP integration
 
