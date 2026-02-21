@@ -151,15 +151,35 @@ class TestBuiltinTools:
         assert "a.txt" in result.content
         assert "b.txt" in result.content
 
+    def test_run_command(self, tmp_path):
+        result = _execute_builtin_tool("run_command", {"command": "echo hello"}, tmp_path)
+        assert not result.is_error
+        assert "hello" in result.content
+
+    def test_run_command_cwd(self, tmp_path):
+        (tmp_path / "test.txt").write_text("content")
+        result = _execute_builtin_tool("run_command", {"command": "ls test.txt"}, tmp_path)
+        assert not result.is_error
+        assert "test.txt" in result.content
+
+    def test_run_command_nonzero_exit(self, tmp_path):
+        result = _execute_builtin_tool("run_command", {"command": "exit 1"}, tmp_path)
+        assert result.is_error
+        assert "exit code: 1" in result.content
+
+    def test_run_command_stderr(self, tmp_path):
+        result = _execute_builtin_tool("run_command", {"command": "echo err >&2"}, tmp_path)
+        assert "err" in result.content
+
     def test_unknown_tool(self, tmp_path):
         result = _execute_builtin_tool("nope", {}, tmp_path)
         assert result.is_error
         assert "Unknown tool" in result.content
 
     def test_builtin_tools_list(self):
-        assert len(BUILTIN_TOOLS) == 4
+        assert len(BUILTIN_TOOLS) == 5
         names = {t.name for t in BUILTIN_TOOLS}
-        assert names == {"write_file", "read_file", "list_directory", "fetch_url"}
+        assert names == {"write_file", "read_file", "list_directory", "fetch_url", "run_command"}
 
 
 class TestExecuteSkill:
@@ -197,7 +217,7 @@ class TestExecuteSkill:
         call_args = mock_provider.stream_completion.call_args
         tools_arg = call_args[1].get("tools") or (call_args[0][2] if len(call_args[0]) > 2 else None)
         assert tools_arg is not None
-        assert len(tools_arg) == 4
+        assert len(tools_arg) == 5
 
     @patch("telos.executor._create_provider")
     def test_provider_called_with_prompt(self, mock_create, tmp_path, monkeypatch):

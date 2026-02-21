@@ -60,6 +60,17 @@ BUILTIN_TOOLS = [
             "required": ["url"],
         },
     ),
+    ToolDefinition(
+        name="run_command",
+        description="Run a shell command and return its output. The command runs in the agent's working directory. Use for running scripts, git commands, system utilities, etc. Timeout is 60 seconds.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "The shell command to execute"},
+            },
+            "required": ["command"],
+        },
+    ),
 ]
 
 
@@ -87,6 +98,23 @@ def _execute_builtin_tool(name: str, arguments: dict, cwd: Path) -> ToolResult:
             )
             with urllib.request.urlopen(req, timeout=30) as resp:
                 return ToolResult(tool_call_id="", content=resp.read().decode())
+        elif name == "run_command":
+            import subprocess
+
+            result = subprocess.run(
+                arguments["command"],
+                shell=True,
+                cwd=str(cwd),
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            output = result.stdout
+            if result.stderr:
+                output += f"\n[stderr]\n{result.stderr}"
+            if result.returncode != 0:
+                output += f"\n[exit code: {result.returncode}]"
+            return ToolResult(tool_call_id="", content=output or "(no output)", is_error=result.returncode != 0)
         else:
             return ToolResult(tool_call_id="", content=f"Unknown tool: {name}", is_error=True)
     except Exception as e:
