@@ -17,12 +17,8 @@ You are running on macOS with full access to Calendar.app via AppleScript. Use t
 | Command | Usage |
 |---------|-------|
 | List calendars | `scripts/cal-list.sh` |
-| List events | `scripts/cal-events.sh [days_ahead] [calendar_name]` |
 | Read event | `scripts/cal-read.sh <event-uid> [calendar_name]` |
 | Create event | `scripts/cal-create.sh <calendar> <summary> <start> <end> [location] [description] [allday] [recurrence]` |
-| Update event | `scripts/cal-update.sh <event-uid> [--summary X] [--start X] [--end X] [--location X] [--description X]` |
-| Delete event | `scripts/cal-delete.sh <event-uid> [calendar_name]` |
-| Search events | `scripts/cal-search.sh <query> [days_ahead] [calendar_name]` |
 
 ## Date Format
 
@@ -39,11 +35,12 @@ You are running on macOS with full access to Calendar.app via AppleScript. Use t
 
 ## Output
 
-- Events/search: `UID | Summary | Start | End | AllDay | Location | Calendar`
-- Read: Full details with description, URL, recurrence
+- List: `CalendarName | writable` or `CalendarName | read-only`
+- Read: UID, Calendar, Summary, Start, End, All Day, Location, Description, URL, Recurrence
+- Create: returns the UID of the created event
 
 ## Notes
 
 - Read-only calendars (Birthdays, Holidays) can't be modified
 - Calendar names are case-sensitive
-- Deleting recurring events removes entire series
+- Only use the three scripts listed above — other scripts in the directory are broken
