@@ -87,14 +87,15 @@ uv run telos
 
 ## Skills
 
-A skill is a markdown file in a subdirectory:
+A skill is a folder with a `SKILL.md` and optionally companion scripts:
 
 ```
-packs/hackernews/
-  agent.toml
-  skills/
-    frontpage/
-      SKILL.md
+apple-calendar/
+  SKILL.md
+  scripts/
+    cal-list.sh
+    cal-create.sh
+    cal-read.sh
 ```
 
 The `SKILL.md` is the entire configuration:
@@ -115,6 +116,8 @@ Write to `YYYY-MM-DD-frontpage.md`.
 ```
 
 No config files. No pipeline DSL. The skill *is* the configuration.
+
+This is the same format used by [OpenClaw](https://github.com/openclaw/skills) and [ClawHub](https://clawhub.ai). A skill pulled from any source works in telos without modification. The `agent.toml` wrapper that telos uses for installation is scaffolding — the skill itself is just the folder. Making `agent.toml` optional is on the roadmap, which will enable direct install from ClawHub, GitHub, or any URL.
 
 ## Agents
 

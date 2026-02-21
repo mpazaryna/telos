@@ -20,18 +20,45 @@ and output persistence.
 
 ## Core Concepts
 
+### Telos as a Clawbot
+
+Telos is a [clawbot](https://github.com/openclaw/skills) — a runtime that executes
+claws (SKILL.md files). It is compatible with the [OpenClaw](https://github.com/openclaw/skills)
+skill ecosystem and [ClawHub](https://clawhub.ai) registry.
+
+Unlike most clawbots that wrap `claude -p` (Claude Code as a subprocess), telos calls
+the LLM API directly with its own tool-use loop and provider abstraction. Same skills,
+different engine. This means no Claude Code dependency, no Node.js cold start, and the
+ability to swap providers (Anthropic, Ollama, etc.) with an env var.
+
+The `SKILL.md` file is the universal contract. A skill written for any clawbot works in
+telos. The runtime is interchangeable — the skill is the product.
+
+### Skill (Claw)
+A skill is a folder containing a `SKILL.md` file, optionally accompanied by scripts,
+README, or other supporting files. The `SKILL.md` has YAML frontmatter with a
+`description:` field and a prompt body. The description is used for intent routing.
+The body is sent to the LLM provider for execution.
+
+```
+apple-calendar/
+  SKILL.md
+  scripts/
+    cal-list.sh
+    cal-create.sh
+    cal-read.sh
+```
+
+This is the same format used by OpenClaw and ClawHub. A skill pulled from any source
+can be installed in telos without modification.
+
 ### Agent
 A named profile representing a domain of work. Each agent has:
-- A **skills directory** containing `SKILL.md` files in subdirectories
-- A **working directory** where file operations are rooted
+- A **skills directory** containing one or more skill folders (each with a `SKILL.md`)
+- A **working directory** where file operations are rooted (defaults to `~/telos/<name>/`)
 - A **mode**: `linked` (reads live from an external directory, e.g. Obsidian vault) or
   `installed` (skills managed by telos in `~/.local/share/telos/agents/`)
 - An optional **MCP config** (`mcp.json`) for external tool servers
-
-### Skill
-A markdown file (`SKILL.md`) inside a named subdirectory, with YAML frontmatter
-containing a `description:` field and a prompt body. The description is used for intent
-routing. The body is sent to the LLM provider for execution.
 
 ### Intent Routing
 Two-pass process:
@@ -103,8 +130,10 @@ Every skill execution has access to these tools, regardless of provider:
 | `read_file` | Read the contents of a file. |
 | `list_directory` | List files and subdirectories. |
 | `fetch_url` | Fetch content from a URL. Returns the response body as text. |
+| `run_command` | Run a shell command and return output. 60 second timeout. |
 
-All file paths are resolved relative to the agent's `working_dir`.
+All file paths are resolved relative to the agent's `working_dir`. Shell commands
+run in the same directory.
 
 ---
 
@@ -184,10 +213,14 @@ are auto-detected from the agent's data directory.
 ## Install Model
 
 ### Agent Pack Format
+
+A pack is a directory containing one or more skills with an optional `agent.toml`:
+
 ```
 my-agent-pack/
-├── agent.toml
+├── agent.toml          # optional — overrides for name, working_dir, etc.
 ├── mcp.json            # optional — MCP server config
+├── scripts/            # optional — companion shell scripts
 └── skills/
     ├── check-email/
     │   └── SKILL.md
@@ -195,12 +228,31 @@ my-agent-pack/
         └── SKILL.md
 ```
 
-The `agent.toml` manifest:
+### agent.toml (Optional)
+
+The `agent.toml` provides explicit configuration when defaults aren't sufficient:
+
 ```toml
 name = "hackernews"
 description = "Hacker News reader — frontpage summaries and trending topics"
 working_dir = "~/telos/hackernews"
 ```
+
+**When `agent.toml` is present**, its values are used directly.
+
+**When `agent.toml` is absent** (future), sensible defaults are inferred:
+- **name** — derived from the directory name
+- **description** — extracted from the first SKILL.md's frontmatter
+- **working_dir** — defaults to `~/telos/<name>/`
+
+This means a bare skill folder with just a `SKILL.md` (and optionally scripts) is a
+valid installable unit. The `agent.toml` is scaffolding for the exception cases:
+overriding the working directory (e.g. kairos → Obsidian vault), grouping multiple
+skills, or adding metadata.
+
+Currently `agent.toml` is still required by the installer. Making it optional is a
+planned enhancement that would enable direct install from ClawHub, OpenClaw, or any
+source that provides a bare SKILL.md folder.
 
 When installed, telos sets `mode = "installed"` automatically.
 
@@ -249,6 +301,7 @@ Blocks on linked agents (must edit agents.toml manually).
 | kairos | linked | Personal productivity — daily notes, summaries, load tracking. Skills live in Obsidian vault. | Obsidian vault |
 | hackernews | installed | Hacker News frontpage summaries. | `~/telos/hackernews/` |
 | clickup | installed | ClickUp task review and project standup (via MCP). | `~/telos/clickup/` |
+| apple-calendar | installed | Calendar.app integration (ported from OpenClaw). | stdout |
 
 ---
 
@@ -878,9 +931,14 @@ Feature: Interactive agent and skill selection
 
 ## Future Considerations
 
+- **Optional agent.toml** — Make `agent.toml` optional in the installer. Infer name
+  from directory, description from SKILL.md frontmatter, working_dir as `~/telos/<name>/`.
+  This enables direct install from ClawHub, OpenClaw, or bare SKILL.md folders.
+- **Remote install sources** — `telos install clawhub:<slug>`,
+  `telos install github:<user>/<repo>`, `telos install <url>`. Fetch the skill folder,
+  auto-generate agent.toml if absent, install normally.
 - **Additional providers** — Apple Foundation Models, OpenAI, etc. Just implement
   `stream_completion()`.
 - **Cost tracking** — Parse token counts from provider responses, log to JSONL.
 - **`telos skill add`** — Scaffold a new SKILL.md in a subdirectory.
-- **Remote install sources** — `telos install gh:user/repo`.
 - **Guided init** — Detect Obsidian vaults, offer bundled pack installation.
