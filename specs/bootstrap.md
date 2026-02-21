@@ -26,10 +26,10 @@ Telos is a [clawbot](https://github.com/openclaw/skills) — a runtime that exec
 claws (SKILL.md files). It is compatible with the [OpenClaw](https://github.com/openclaw/skills)
 skill ecosystem and [ClawHub](https://clawhub.ai) registry.
 
-Unlike most clawbots that wrap `claude -p` (Claude Code as a subprocess), telos calls
-the LLM API directly with its own tool-use loop and provider abstraction. Same skills,
-different engine. This means no Claude Code dependency, no Node.js cold start, and the
-ability to swap providers (Anthropic, Ollama, etc.) with an env var.
+Most clawbots are tied to a single runtime like Claude Code. Telos has its own execution
+engine with a provider abstraction — same skills, any model. This means no single-vendor
+lock-in, no subprocess overhead, and the ability to swap providers (Anthropic, Ollama,
+etc.) with an env var.
 
 The `SKILL.md` file is the universal contract. A skill written for any clawbot works in
 telos. The runtime is interchangeable — the skill is the product.

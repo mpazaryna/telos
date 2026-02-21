@@ -12,7 +12,7 @@ telos --agent apple-calendar "list my calendars"
 
 A **claw** is a `SKILL.md` file — a markdown document that tells an LLM what to do, what tools to use, and how to format the output. The [OpenClaw](https://github.com/openclaw/skills) ecosystem is a growing library of community-contributed skills for everything from Apple Calendar to GitHub to Hacker News.
 
-A **clawbot** is a runtime that executes claws. Most clawbots wrap `claude -p` (Claude Code as a subprocess). Telos takes a different approach: it calls the Anthropic API directly with its own tool-use loop and provider abstraction. Same skills, different engine.
+A **clawbot** is a runtime that executes claws. Most clawbots are tied to a single runtime like Claude Code. Telos takes a different approach: it has its own execution engine with a provider abstraction, so the same skills run against Anthropic, Ollama, or whatever comes next.
 
 This means:
 - **No Claude Code dependency.** No 5-10s Node.js cold start per execution.

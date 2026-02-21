@@ -3,9 +3,9 @@
 ## What is telos?
 
 Telos is a clawbot — a runtime that executes claws (SKILL.md files). It is compatible
-with the OpenClaw skill ecosystem and ClawHub registry. Unlike most clawbots that wrap
-`claude -p`, telos calls the LLM API directly with its own tool-use loop and provider
-abstraction.
+with the OpenClaw skill ecosystem and ClawHub registry. Most clawbots are tied to a
+single LLM runtime. Telos has its own execution engine with a provider abstraction —
+same skills, any model (Anthropic, Ollama, etc.).
 
 ## Key Architecture Decisions
 
@@ -18,8 +18,8 @@ abstraction.
   folder should be a valid installable unit. Name from directory, description from
   frontmatter, working_dir defaults to `~/telos/<name>/`.
 
-- **Direct API, no subprocess.** Execution uses the anthropic SDK directly, not
-  `claude -p`. This eliminates the 5-10s Node.js cold start per execution.
+- **Direct API, no subprocess.** Execution uses LLM SDKs directly, not a CLI
+  subprocess. No cold start overhead per execution.
 
 - **Provider protocol.** `stream_completion()` is a sync Generator yielding StreamEvents.
   AnthropicProvider and OllamaProvider implement it. Swap with `TELOS_PROVIDER` env var.
