@@ -20,6 +20,16 @@ This means:
 - **OpenClaw compatible.** Pull skills from the ecosystem and they just work — we ported [apple-calendar](https://github.com/openclaw/skills/tree/main/skills/tyler6204/apple-calendar) in minutes.
 - **Small enough to audit.** The entire engine is under 1000 lines of Python.
 
+## Why this matters
+
+For decades, the runtime *was* the moat. You paid Oracle for the database, Salesforce for the CRM, Microsoft for the BI layer. The logic, the workflows, the integrations — all locked inside proprietary runtimes. You couldn't take your stuff and leave. That was the business model.
+
+Now a skill is a markdown file. The logic is human-readable. The integrations are MCP servers anyone can stand up. The model is an API call. There's nothing left to lock in.
+
+The runtime is commoditized. Claude Code, Telos, Claws, Codex, Gemini — they're all just different ways to read a prompt, call an API, and execute tools. The value isn't in the runtime anymore. The value is in the **skills** (the accumulated knowledge of *how* to do something) and the **models** (the intelligence that interprets them). Everything in between is interchangeable plumbing.
+
+The entire enterprise software industry was built on the premise that the runtime is where value accumulates. That premise just broke.
+
 ## How it works
 
 ```
