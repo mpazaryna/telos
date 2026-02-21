@@ -8,7 +8,7 @@ Pull a quick standup view for the **PAB: Chiro Space** in ClickUp.
 
 ## What to do
 
-1. Search ClickUp for all active tasks in the "PAB: Chiro Space" (space ID: `90174262040`)
+1. Search ClickUp for all active tasks in the "PAB: Chiro Space" (workspace ID: `9017822495`, space ID: `90174262040`)
 2. Group results by list (e.g. "v1.0.0 UAT", "Marketing")
 3. Within each list, group by status ("in progress" first, then "not started" / "to do")
 

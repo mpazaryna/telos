@@ -1,47 +1,47 @@
 """Unit tests for telos.executor."""
 
 import os
-import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from telos.executor import build_command, load_env, resolve_working_dir, execute_skill
+from telos.executor import (
+    BUILTIN_TOOLS,
+    _build_prompt,
+    _execute_builtin_tool,
+    execute_skill,
+    load_env,
+    resolve_working_dir,
+)
+from telos.provider import StreamEvent
 
 
-class TestBuildCommand:
-    """Tests for build_command."""
+class TestBuildPrompt:
+    """Tests for _build_prompt."""
 
-    def test_builds_claude_command(self):
-        cmd = build_command("# Kickoff\nDo the thing")
-        assert cmd == ["claude", "-p", "# Kickoff\nDo the thing"]
+    def test_basic_prompt(self):
+        result = _build_prompt("# Kickoff\nDo the thing")
+        assert result.startswith("# Kickoff\nDo the thing")
+        assert "Current date/time:" in result
 
     def test_preserves_multiline_body(self):
         body = "# Kickoff\n\nLine 1\nLine 2\nLine 3"
-        cmd = build_command(body)
-        assert cmd[2] == body
+        result = _build_prompt(body)
+        assert result.startswith(body)
 
     def test_appends_user_request(self):
-        cmd = build_command("# Skill body", user_request="write a note about the meeting")
-        assert "User request: write a note about the meeting" in cmd[2]
-        assert cmd[2].startswith("# Skill body")
+        result = _build_prompt("# Skill body", user_request="write a note about the meeting")
+        assert "User request: write a note about the meeting" in result
+        assert result.startswith("# Skill body")
 
     def test_no_user_request_omits_section(self):
-        cmd = build_command("# Skill body")
-        assert "User request" not in cmd[2]
+        result = _build_prompt("# Skill body")
+        assert "User request" not in result
 
-    def test_mcp_config_path_inserts_flag(self):
-        """build_command with mcp_config_path → inserts --mcp-config."""
-        cmd = build_command("# Skill body", mcp_config_path=Path("/data/agents/clickup/mcp.json"))
-        assert "--mcp-config" in cmd
-        idx = cmd.index("--mcp-config")
-        assert cmd[idx + 1] == "/data/agents/clickup/mcp.json"
-
-    def test_no_mcp_config_path_omits_flag(self):
-        """build_command without mcp_config_path → no --mcp-config flag."""
-        cmd = build_command("# Skill body")
-        assert "--mcp-config" not in cmd
+    def test_includes_timestamp(self):
+        result = _build_prompt("# Skill body")
+        assert "Current date/time:" in result
 
 
 class TestLoadEnv:
@@ -114,45 +114,133 @@ class TestResolveWorkingDir:
         assert result == Path.home() / "Documents"
 
 
+class TestBuiltinTools:
+    """Tests for _execute_builtin_tool."""
+
+    def test_write_file_creates_file(self, tmp_path):
+        result = _execute_builtin_tool(
+            "write_file", {"path": "test.md", "content": "hello"}, tmp_path
+        )
+        assert not result.is_error
+        assert (tmp_path / "test.md").read_text() == "hello"
+
+    def test_write_file_creates_parent_dirs(self, tmp_path):
+        result = _execute_builtin_tool(
+            "write_file",
+            {"path": "sub/dir/test.md", "content": "nested"},
+            tmp_path,
+        )
+        assert not result.is_error
+        assert (tmp_path / "sub/dir/test.md").read_text() == "nested"
+
+    def test_read_file(self, tmp_path):
+        (tmp_path / "data.txt").write_text("file content")
+        result = _execute_builtin_tool("read_file", {"path": "data.txt"}, tmp_path)
+        assert not result.is_error
+        assert result.content == "file content"
+
+    def test_read_file_not_found(self, tmp_path):
+        result = _execute_builtin_tool("read_file", {"path": "missing.txt"}, tmp_path)
+        assert result.is_error
+
+    def test_list_directory(self, tmp_path):
+        (tmp_path / "a.txt").touch()
+        (tmp_path / "b.txt").touch()
+        result = _execute_builtin_tool("list_directory", {"path": "."}, tmp_path)
+        assert not result.is_error
+        assert "a.txt" in result.content
+        assert "b.txt" in result.content
+
+    def test_unknown_tool(self, tmp_path):
+        result = _execute_builtin_tool("nope", {}, tmp_path)
+        assert result.is_error
+        assert "Unknown tool" in result.content
+
+    def test_builtin_tools_list_has_three_tools(self):
+        assert len(BUILTIN_TOOLS) == 3
+        names = {t.name for t in BUILTIN_TOOLS}
+        assert names == {"write_file", "read_file", "list_directory"}
+
+
 class TestExecuteSkill:
-    """Tests for execute_skill."""
+    """Tests for execute_skill with mocked provider."""
 
-    @patch("telos.executor.subprocess.run")
-    def test_subprocess_called_with_correct_args(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(returncode=0)
+    @patch("telos.executor._create_provider")
+    def test_streams_text_to_stdout(self, mock_create, tmp_path, capsys, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        mock_provider = MagicMock()
+        mock_provider.stream_completion.return_value = iter(
+            [
+                StreamEvent(type="text", text="Hello"),
+                StreamEvent(type="text", text=" world"),
+                StreamEvent(type="done", stop_reason="end_turn"),
+            ]
+        )
+        mock_create.return_value = mock_provider
+
         execute_skill("# Kickoff\nDo the thing", working_dir=tmp_path)
-        mock_run.assert_called_once()
-        call_args = mock_run.call_args
-        assert call_args[0][0] == ["claude", "-p", "# Kickoff\nDo the thing"]
-        assert call_args[1]["cwd"] == tmp_path
 
-    @patch("telos.executor.subprocess.run")
-    def test_inherits_stdio(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(returncode=0)
+        captured = capsys.readouterr()
+        assert "Hello world" in captured.out
+
+    @patch("telos.executor._create_provider")
+    def test_provider_receives_builtin_tools(self, mock_create, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        mock_provider = MagicMock()
+        mock_provider.stream_completion.return_value = iter(
+            [StreamEvent(type="done", stop_reason="end_turn")]
+        )
+        mock_create.return_value = mock_provider
+
         execute_skill("body", working_dir=tmp_path)
-        call_kwargs = mock_run.call_args[1]
-        # Should NOT have capture_output=True
-        assert call_kwargs.get("capture_output") is not True
 
-    @patch("telos.executor.subprocess.run")
-    def test_claude_not_found_raises_error(self, mock_run, tmp_path):
-        mock_run.side_effect = FileNotFoundError()
-        with pytest.raises(SystemExit) as exc_info:
-            execute_skill("body", working_dir=tmp_path)
+        call_args = mock_provider.stream_completion.call_args
+        tools_arg = call_args[1].get("tools") or (call_args[0][2] if len(call_args[0]) > 2 else None)
+        assert tools_arg is not None
+        assert len(tools_arg) == 3
 
-    @patch("telos.executor.subprocess.run")
-    def test_nonzero_exit_raises_error(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(returncode=1)
-        with pytest.raises(SystemExit):
-            execute_skill("body", working_dir=tmp_path)
+    @patch("telos.executor._create_provider")
+    def test_provider_called_with_prompt(self, mock_create, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        mock_provider = MagicMock()
+        mock_provider.stream_completion.return_value = iter(
+            [StreamEvent(type="done", stop_reason="end_turn")]
+        )
+        mock_create.return_value = mock_provider
 
-    @patch("telos.executor.subprocess.run")
-    def test_env_passed_to_subprocess(self, mock_run, tmp_path):
+        execute_skill(
+            "# Skill body",
+            working_dir=tmp_path,
+            user_request="do something",
+        )
+
+        mock_provider.stream_completion.assert_called_once()
+        call_args = mock_provider.stream_completion.call_args
+        messages = call_args[0][1] if len(call_args[0]) > 1 else call_args[1].get("messages")
+        prompt = messages[0]["content"]
+        assert "# Skill body" in prompt
+        assert "User request: do something" in prompt
+
+    @patch("telos.executor._create_provider")
+    def test_env_passed_to_provider(self, mock_create, tmp_path):
         env_file = tmp_path / ".env"
-        env_file.write_text("CUSTOM=value\n")
-        mock_run.return_value = MagicMock(returncode=0)
+        env_file.write_text("ANTHROPIC_API_KEY=test-key\nCUSTOM=value\n")
+        mock_provider = MagicMock()
+        mock_provider.stream_completion.return_value = iter(
+            [StreamEvent(type="done", stop_reason="end_turn")]
+        )
+        mock_create.return_value = mock_provider
 
         execute_skill("body", working_dir=tmp_path, env_path=env_file)
 
-        call_kwargs = mock_run.call_args[1]
-        assert call_kwargs["env"]["CUSTOM"] == "value"
+        mock_create.assert_called_once()
+        env_arg = mock_create.call_args[0][0]
+        assert env_arg["CUSTOM"] == "value"
+
+    def test_missing_api_key_raises_exit(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        env_file = tmp_path / ".env"
+        env_file.write_text("OTHER_KEY=value\n")
+
+        with pytest.raises(SystemExit):
+            execute_skill("body", working_dir=tmp_path, env_path=env_file)

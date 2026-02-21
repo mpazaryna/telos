@@ -146,6 +146,10 @@ def main(
     ctx.obj["verbose"] = verbose
 
     if ctx.invoked_subcommand is None:
+        # No subcommand and no flags → launch interactive mode
+        if not agent and not dry_run and not verbose:
+            from telos.interactive import interactive_mode
+            interactive_mode(console, err_console)
         raise typer.Exit()
 
 

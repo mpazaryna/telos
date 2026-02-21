@@ -6,8 +6,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from telos.config import load_config
-from telos.router import discover_skills, route_intent
 from telos.executor import execute_skill
+from telos.provider import StreamEvent
+from telos.router import discover_skills, route_intent
 
 
 class TestFullPipeline:
@@ -33,9 +34,19 @@ working_dir = "{tmp_path}"
 """)
         return config
 
-    @patch("telos.executor.subprocess.run")
-    def test_full_pipeline_keyword_match(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(returncode=0)
+    def _mock_provider(self):
+        mock_provider = MagicMock()
+        mock_provider.stream_completion.return_value = iter(
+            [
+                StreamEvent(type="text", text="Done."),
+                StreamEvent(type="done", stop_reason="end_turn"),
+            ]
+        )
+        return mock_provider
+
+    @patch("telos.executor._create_provider")
+    def test_full_pipeline_keyword_match(self, mock_create, tmp_path):
+        mock_create.return_value = self._mock_provider()
         config = self._setup_full(tmp_path)
         agents, default_agent = load_config(config)
         agent = agents[default_agent]
@@ -43,14 +54,11 @@ working_dir = "{tmp_path}"
         result = route_intent("run kickoff", skills)
         assert result is not None
         execute_skill(result.body, working_dir=agent.working_dir)
-        mock_run.assert_called_once()
-        cmd = mock_run.call_args[0][0]
-        assert cmd[0] == "claude"
-        assert "# Kickoff" in cmd[2]
+        mock_create.assert_called_once()
 
-    @patch("telos.executor.subprocess.run")
-    def test_full_pipeline_api_match(self, mock_run, tmp_path, monkeypatch):
-        mock_run.return_value = MagicMock(returncode=0)
+    @patch("telos.executor._create_provider")
+    def test_full_pipeline_api_match(self, mock_create, tmp_path, monkeypatch):
+        mock_create.return_value = self._mock_provider()
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.content = [MagicMock(text="kickoff")]
@@ -64,13 +72,13 @@ working_dir = "{tmp_path}"
         result = route_intent("let's start the day", skills, client=mock_client)
         assert result is not None
         execute_skill(result.body, working_dir=agent.working_dir)
-        mock_run.assert_called_once()
+        mock_create.assert_called_once()
 
-    @patch("telos.executor.subprocess.run")
-    def test_full_pipeline_with_env(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(returncode=0)
+    @patch("telos.executor._create_provider")
+    def test_full_pipeline_with_env(self, mock_create, tmp_path):
+        mock_create.return_value = self._mock_provider()
         env_file = tmp_path / ".env"
-        env_file.write_text("CLICKUP_API_KEY=test123\n")
+        env_file.write_text("ANTHROPIC_API_KEY=test123\nCLICKUP_API_KEY=test123\n")
 
         config = self._setup_full(tmp_path)
         agents, default_agent = load_config(config)
@@ -80,14 +88,15 @@ working_dir = "{tmp_path}"
         assert result is not None
         execute_skill(result.body, working_dir=agent.working_dir, env_path=env_file)
 
-        call_kwargs = mock_run.call_args[1]
-        assert call_kwargs["env"]["CLICKUP_API_KEY"] == "test123"
+        env_arg = mock_create.call_args[0][0]
+        assert env_arg["CLICKUP_API_KEY"] == "test123"
 
-    @patch("telos.executor.subprocess.run")
-    def test_user_request_included_in_prompt(self, mock_run, tmp_path):
+    @patch("telos.executor._create_provider")
+    def test_user_request_included_in_prompt(self, mock_create, tmp_path):
         """The user's original request must be appended to the skill body
-        so Claude Code has full context (e.g. 'write an interstitial about X')."""
-        mock_run.return_value = MagicMock(returncode=0)
+        so the model has full context (e.g. 'write an interstitial about X')."""
+        mock_provider = self._mock_provider()
+        mock_create.return_value = mock_provider
         config = self._setup_full(tmp_path)
         agents, default_agent = load_config(config)
         agent = agents[default_agent]
@@ -96,17 +105,29 @@ working_dir = "{tmp_path}"
         result = route_intent(user_input, skills)
         assert result is not None
         execute_skill(result.body, working_dir=agent.working_dir, user_request=user_input)
-        cmd = mock_run.call_args[0][0]
-        # Skill body is present
-        assert "# Kickoff" in cmd[2]
-        # User request is appended
-        assert "run kickoff and focus on the API refactor" in cmd[2]
 
-    @patch("telos.executor.subprocess.run")
-    def test_full_pipeline_with_mcp_config(self, mock_run, tmp_path):
-        """Full pipeline with mcp_config: load config → route → execute_skill
-        receives mcp_config_path → subprocess command includes --mcp-config."""
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_provider.stream_completion.assert_called_once()
+        call_args = mock_provider.stream_completion.call_args
+        messages = call_args[0][1]
+        prompt = messages[0]["content"]
+        # Skill body is present
+        assert "# Kickoff" in prompt
+        # User request is appended
+        assert "run kickoff and focus on the API refactor" in prompt
+
+    @patch("telos.executor._create_provider")
+    def test_full_pipeline_with_mcp_config(self, mock_create, tmp_path):
+        """Full pipeline with mcp_config: load config -> route -> execute_skill
+        dispatches to MCP execution path."""
+        mock_provider = MagicMock()
+        # MCP path uses asyncio.run, mock the async path instead
+        mock_provider.stream_completion.return_value = iter(
+            [
+                StreamEvent(type="text", text="Done."),
+                StreamEvent(type="done", stop_reason="end_turn"),
+            ]
+        )
+        mock_create.return_value = mock_provider
 
         # Create mcp.json in the agent's data dir
         mcp_json = tmp_path / "mcp.json"
@@ -119,14 +140,11 @@ working_dir = "{tmp_path}"
         result = route_intent("run kickoff", skills)
         assert result is not None
 
-        execute_skill(
-            result.body,
-            working_dir=agent.working_dir,
-            mcp_config_path=mcp_json,
-        )
-
-        mock_run.assert_called_once()
-        cmd = mock_run.call_args[0][0]
-        assert "--mcp-config" in cmd
-        idx = cmd.index("--mcp-config")
-        assert cmd[idx + 1] == str(mcp_json)
+        # Mock the MCP execution path since we don't have real MCP servers
+        with patch("telos.executor._execute_with_mcp") as mock_mcp:
+            execute_skill(
+                result.body,
+                working_dir=agent.working_dir,
+                mcp_config_path=mcp_json,
+            )
+            mock_mcp.assert_called_once()
