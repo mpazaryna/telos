@@ -63,6 +63,22 @@ def copy_skills(src_dir: Path, dest_dir: Path) -> int:
     return count
 
 
+def copy_scripts(pack_dir: Path, dest_dir: Path) -> bool:
+    """Copy scripts/ directory from pack to destination if present.
+
+    Preserves file permissions (executable bits).
+    Returns True if copied, False if no scripts/ exists.
+    """
+    scripts_src = pack_dir / "scripts"
+    if not scripts_src.is_dir():
+        return False
+    scripts_dest = dest_dir / "scripts"
+    if scripts_dest.exists():
+        shutil.rmtree(scripts_dest)
+    shutil.copytree(scripts_src, scripts_dest)
+    return True
+
+
 def copy_mcp_config(pack_dir: Path, dest_dir: Path) -> bool:
     """Copy mcp.json from pack directory to destination if present.
 
@@ -174,6 +190,9 @@ def install_agent(pack_dir: Path) -> InstallResult:
     agent_dest = data_dir / "agents" / agent_name
     skills_dest = agent_dest / "skills"
     skill_count = copy_skills(skills_src, skills_dest)
+
+    # Copy scripts directory if present
+    copy_scripts(pack_dir, agent_dest)
 
     # Copy MCP config if present
     copy_mcp_config(pack_dir, agent_dest)
