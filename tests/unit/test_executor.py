@@ -156,10 +156,10 @@ class TestBuiltinTools:
         assert result.is_error
         assert "Unknown tool" in result.content
 
-    def test_builtin_tools_list_has_three_tools(self):
-        assert len(BUILTIN_TOOLS) == 3
+    def test_builtin_tools_list(self):
+        assert len(BUILTIN_TOOLS) == 4
         names = {t.name for t in BUILTIN_TOOLS}
-        assert names == {"write_file", "read_file", "list_directory"}
+        assert names == {"write_file", "read_file", "list_directory", "fetch_url"}
 
 
 class TestExecuteSkill:
@@ -197,7 +197,7 @@ class TestExecuteSkill:
         call_args = mock_provider.stream_completion.call_args
         tools_arg = call_args[1].get("tools") or (call_args[0][2] if len(call_args[0]) > 2 else None)
         assert tools_arg is not None
-        assert len(tools_arg) == 3
+        assert len(tools_arg) == 4
 
     @patch("telos.executor._create_provider")
     def test_provider_called_with_prompt(self, mock_create, tmp_path, monkeypatch):

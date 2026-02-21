@@ -32,3 +32,6 @@ Print a concise standup summary:
 - Use plain text, no tables
 - Include the ClickUp task URL for any in-progress items
 - Do not modify any tasks — read only
+
+## Save output
+After printing the standup, also write it to a file named `YYYY-MM-DD-standup.md` (using today's date).

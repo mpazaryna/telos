@@ -10,6 +10,7 @@ from pathlib import Path
 
 from rich.console import Console
 
+from telos.logger import log_skill_end, log_skill_start, log_tool_call
 from telos.provider import AnthropicProvider, OllamaProvider, StreamEvent, ToolDefinition, ToolResult
 
 console = Console(stderr=True)
@@ -48,6 +49,17 @@ BUILTIN_TOOLS = [
             },
         },
     ),
+    ToolDefinition(
+        name="fetch_url",
+        description="Fetch content from a URL. Returns the response body as text.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The URL to fetch"},
+            },
+            "required": ["url"],
+        },
+    ),
 ]
 
 
@@ -66,6 +78,15 @@ def _execute_builtin_tool(name: str, arguments: dict, cwd: Path) -> ToolResult:
             target = (cwd / arguments.get("path", ".")).resolve()
             entries = sorted(p.name for p in target.iterdir())
             return ToolResult(tool_call_id="", content="\n".join(entries))
+        elif name == "fetch_url":
+            import urllib.request
+
+            req = urllib.request.Request(
+                arguments["url"],
+                headers={"User-Agent": "telos/0.1"},
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return ToolResult(tool_call_id="", content=resp.read().decode())
         else:
             return ToolResult(tool_call_id="", content=f"Unknown tool: {name}", is_error=True)
     except Exception as e:
@@ -148,13 +169,14 @@ def resolve_working_dir(working_dir: Path) -> Path:
     return expanded
 
 
-def _execute_simple(provider: AnthropicProvider | OllamaProvider, prompt: str, cwd: Path) -> None:
+def _execute_simple(provider: AnthropicProvider | OllamaProvider, prompt: str, cwd: Path, log_ctx: dict) -> None:
     """Execute a skill with built-in file system tools."""
     system = "Follow the instructions carefully and provide a helpful response. Use the available tools to read and write files as needed."
     messages: list[dict] = [{"role": "user", "content": prompt}]
     tools = BUILTIN_TOOLS
 
     for _round in range(20):
+        log_ctx["rounds"] = _round + 1
         text_parts: list[str] = []
         tool_calls: list = []
 
@@ -197,6 +219,8 @@ def _execute_simple(provider: AnthropicProvider | OllamaProvider, prompt: str, c
         tool_results: list[dict] = []
         for tc in tool_calls:
             result = _execute_builtin_tool(tc.name, tc.arguments, cwd)
+            log_ctx["tool_calls"] += 1
+            log_tool_call(tc.name, result.is_error)
             tool_results.append(
                 {
                     "type": "tool_result",
@@ -209,6 +233,7 @@ def _execute_simple(provider: AnthropicProvider | OllamaProvider, prompt: str, c
 
     sys.stdout.write("\n")
     sys.stdout.flush()
+    log_skill_end(log_ctx, messages)
 
 
 async def _execute_with_mcp(
@@ -216,16 +241,21 @@ async def _execute_with_mcp(
     prompt: str,
     mcp_config_path: Path,
     env: dict[str, str],
+    log_ctx: dict,
+    cwd: Path,
 ) -> None:
-    """Execute a skill with MCP tools — async for SSE connections."""
+    """Execute a skill with MCP tools + built-in file tools."""
     from telos.mcp_client import connect_mcp_servers
+
+    builtin_names = {t.name for t in BUILTIN_TOOLS}
 
     async with connect_mcp_servers(mcp_config_path, env) as mcp_ctx:
         system = "Follow the instructions carefully and provide a helpful response. Use the available tools as needed."
         messages: list[dict] = [{"role": "user", "content": prompt}]
-        tools = mcp_ctx.tools
+        tools = list(BUILTIN_TOOLS) + mcp_ctx.tools
 
         for _round in range(20):
+            log_ctx["rounds"] = _round + 1
             text_parts: list[str] = []
             tool_calls: list = []
 
@@ -258,7 +288,12 @@ async def _execute_with_mcp(
             # Execute tools and build results
             tool_results: list[dict] = []
             for tc in tool_calls:
-                result = await mcp_ctx.call_tool(tc.name, tc.arguments)
+                if tc.name in builtin_names:
+                    result = _execute_builtin_tool(tc.name, tc.arguments, cwd)
+                else:
+                    result = await mcp_ctx.call_tool(tc.name, tc.arguments)
+                log_ctx["tool_calls"] += 1
+                log_tool_call(tc.name, result.is_error)
                 tool_results.append(
                     {
                         "type": "tool_result",
@@ -271,6 +306,7 @@ async def _execute_with_mcp(
 
     sys.stdout.write("\n")
     sys.stdout.flush()
+    log_skill_end(log_ctx, messages)
 
 
 def execute_skill(
@@ -295,7 +331,14 @@ def execute_skill(
     provider = _create_provider(env)
     prompt = _build_prompt(skill_body, user_request=user_request)
 
-    if mcp_config_path is not None:
-        asyncio.run(_execute_with_mcp(provider, prompt, mcp_config_path, env))
-    else:
-        _execute_simple(provider, prompt, cwd)
+    provider_name = type(provider).__name__.removesuffix("Provider").lower()
+    log_ctx = log_skill_start(provider_name, provider.model, has_mcp=mcp_config_path is not None)
+
+    try:
+        if mcp_config_path is not None:
+            asyncio.run(_execute_with_mcp(provider, prompt, mcp_config_path, env, log_ctx, cwd))
+        else:
+            _execute_simple(provider, prompt, cwd, log_ctx)
+    except Exception as e:
+        log_skill_end(log_ctx, [], error=str(e))
+        raise
