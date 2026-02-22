@@ -2,16 +2,16 @@
 
 ## What is telos?
 
-Telos is a clawbot — a runtime that executes claws (SKILL.md files). It is compatible
-with the OpenClaw skill ecosystem and ClawHub registry. Most clawbots are tied to a
-single LLM runtime. Telos has its own execution engine with a provider abstraction —
-same skills, any model (Anthropic, Ollama, etc.).
+Telos is a lightweight agent runtime. It executes skills (SKILL.md files) via direct
+LLM API calls with a provider abstraction — same skills, any model (Anthropic, Ollama,
+etc.). Compatible with the OpenClaw skill ecosystem. Surfaces via CLI, interactive
+mode, or Discord bot.
 
 ## Key Architecture Decisions
 
-- **SKILL.md is the universal contract.** A skill is a folder with a SKILL.md and
-  optionally companion scripts. This format is shared across OpenClaw, ClawHub, and
-  any clawbot. The runtime is interchangeable — the skill is the product.
+- **SKILL.md is the contract.** A skill is a folder with a SKILL.md and optionally
+  companion scripts. Compatible with OpenClaw and ClawHub. The runtime is
+  interchangeable — the skill is the product.
 
 - **agent.toml is scaffolding, not a requirement.** It exists to override defaults
   (working_dir, name, description) but the goal is to make it optional. A bare SKILL.md
@@ -80,4 +80,4 @@ uv run pytest tests/integration  # integration (mocked providers)
 The value used to be in the runtime — Oracle, Salesforce, Microsoft. You paid for
 the engine and your logic was locked inside. Now a skill is a markdown file, the
 model is an API call, and the runtime is interchangeable plumbing. The SKILL.md is
-portable across any clawbot. The runtime is commoditized. The skill is the product.
+portable. The runtime is commoditized. The skill is the product.

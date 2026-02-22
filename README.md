@@ -1,6 +1,6 @@
 # telos
 
-A [clawbot](https://github.com/openclaw/skills) with its own engine. Compatible with the OpenClaw skill ecosystem, powered by direct API calls instead of Claude Code.
+A lightweight agent runtime. Skills are markdown files, models are API calls, and the whole thing runs locally in under 1000 lines of Python.
 
 ```
 telos "hacker news frontpage"
@@ -8,16 +8,13 @@ telos --agent clickup "standup"
 telos --agent apple-calendar "list my calendars"
 ```
 
-## What's a clawbot?
+## What it does
 
-A **claw** is a `SKILL.md` file — a markdown document that tells an LLM what to do, what tools to use, and how to format the output. The [OpenClaw](https://github.com/openclaw/skills) ecosystem is a growing library of community-contributed skills for everything from Apple Calendar to GitHub to Hacker News.
+Telos accepts natural language, routes to the right skill, and executes it via direct LLM API calls with tool use. A **skill** is a `SKILL.md` file — a markdown document that tells the model what to do, what tools to use, and how to format the output. No DSL, no pipeline config, no framework lock-in.
 
-A **clawbot** is a runtime that executes claws. Most clawbots are tied to a single runtime like Claude Code. Telos takes a different approach: it has its own execution engine with a provider abstraction, so the same skills run against Anthropic, Ollama, or whatever comes next.
-
-This means:
-- **No Claude Code dependency.** No 5-10s Node.js cold start per execution.
 - **Provider-agnostic.** Anthropic by default, Ollama for local/offline. Swap with one env var.
-- **OpenClaw compatible.** Pull skills from the ecosystem and they just work — we ported [apple-calendar](https://github.com/openclaw/skills/tree/main/skills/tyler6204/apple-calendar) in minutes.
+- **Compatible with [OpenClaw](https://github.com/openclaw/skills).** Skills from the ecosystem work without modification.
+- **Discord included.** A built-in bot lets you run skills from any device.
 - **Small enough to audit.** The entire engine is under 1000 lines of Python.
 
 ## Why this matters
@@ -26,9 +23,7 @@ For decades, the runtime *was* the moat. You paid Oracle for the database, Sales
 
 Now a skill is a markdown file. The logic is human-readable. The integrations are MCP servers anyone can stand up. The model is an API call. There's nothing left to lock in.
 
-The runtime is commoditized. Claude Code, Telos, Claws, Codex, Gemini — they're all just different ways to read a prompt, call an API, and execute tools. The value isn't in the runtime anymore. The value is in the **skills** (the accumulated knowledge of *how* to do something) and the **models** (the intelligence that interprets them). Everything in between is interchangeable plumbing.
-
-The entire enterprise software industry was built on the premise that the runtime is where value accumulates. That premise just broke.
+The runtime is commoditized. The value is in the **skills** — the accumulated knowledge of *how* to do something — and the **models** that interpret them. Everything in between is interchangeable plumbing. Write a skill once, run it anywhere.
 
 ## How it works
 
@@ -117,7 +112,7 @@ Write to `YYYY-MM-DD-frontpage.md`.
 
 No config files. No pipeline DSL. The skill *is* the configuration.
 
-This is the same format used by [OpenClaw](https://github.com/openclaw/skills) and [ClawHub](https://clawhub.ai). A skill pulled from any source works in telos without modification. The `agent.toml` wrapper that telos uses for installation is scaffolding — the skill itself is just the folder. Making `agent.toml` optional is on the roadmap, which will enable direct install from ClawHub, GitHub, or any URL.
+This format is compatible with [OpenClaw](https://github.com/openclaw/skills) and [ClawHub](https://clawhub.ai) — skills from either source work without modification. The `agent.toml` wrapper that telos uses for installation is scaffolding — the skill itself is just the folder.
 
 ## Agents
 
