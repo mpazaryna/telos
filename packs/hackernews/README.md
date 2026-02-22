@@ -63,7 +63,7 @@ Each story shows:
 - Points and comment count in italics
 - Direct link
 
-The output is also saved to `~/telos/hackernews/YYYY-MM-DD-frontpage.md`.
+The output is also saved to `~/obsidian/telos/hackernews/YYYY-MM-DD-frontpage.md`.
 
 ## Skills reference
 

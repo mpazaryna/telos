@@ -16,7 +16,7 @@ same skills, any model (Anthropic, Ollama, etc.).
 - **agent.toml is scaffolding, not a requirement.** It exists to override defaults
   (working_dir, name, description) but the goal is to make it optional. A bare SKILL.md
   folder should be a valid installable unit. Name from directory, description from
-  frontmatter, working_dir defaults to `~/telos/<name>/`.
+  frontmatter, working_dir defaults to `~/obsidian/telos/<name>/`.
 
 - **Direct API, no subprocess.** Execution uses LLM SDKs directly, not a CLI
   subprocess. No cold start overhead per execution.
@@ -28,8 +28,8 @@ same skills, any model (Anthropic, Ollama, etc.).
   fetch_url, run_command) are always available. MCP tools from mcp.json are merged
   alongside them. Tool dispatch routes by name.
 
-- **Output convention.** Agents write to `~/telos/<agent-name>/` by default. Linked
-  agents (kairos) override this to write to their own directory (Obsidian vault).
+- **Output convention.** Agents write to `~/obsidian/telos/<agent-name>/` by default.
+  All output lands in the Obsidian vault for search, backlinks, and mobile access.
 
 ## Project Layout
 
@@ -51,8 +51,9 @@ packs/              # bundled agent packs
   clickup/          # project standup via MCP
   apple-calendar/   # Calendar.app integration (ported from OpenClaw)
 
-specs/
-  bootstrap.md      # full build specification (v3.0)
+.orchestra/          # agentic reference docs
+  specs/
+    bootstrap.md    # full build specification (v3.0)
 ```
 
 ## Conventions

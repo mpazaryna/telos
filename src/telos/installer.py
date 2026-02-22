@@ -37,7 +37,7 @@ def read_agent_toml(pack_dir: Path) -> dict:
 
     # Apply defaults
     data.setdefault("executor", "claude_code")
-    data.setdefault("working_dir", ".")
+    data.setdefault("working_dir", f"~/obsidian/telos/{data['name']}")
     data.setdefault("description", "")
 
     return data

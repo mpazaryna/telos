@@ -41,7 +41,7 @@ The entire enterprise software industry was built on the premise that the runtim
 1. **Route** — keyword match first (zero API cost), then Claude API for fuzzy intent
 2. **Execute** — stream completion with tools in a loop (up to 20 rounds)
 3. **Tools** — built-in file I/O + URL fetching, plus MCP servers for external APIs
-4. **Persist** — output streams to terminal and saves to `~/telos/<agent>/`
+4. **Persist** — output streams to terminal and saves to `~/obsidian/telos/<agent>/`
 
 ## Install
 
@@ -126,8 +126,8 @@ An agent is a named profile with a skills directory and a working directory:
 | Agent | Description | Output |
 |-------|-------------|--------|
 | kairos | Personal productivity — daily notes, weekly summaries (Obsidian) | Obsidian vault |
-| hackernews | HN frontpage summaries | `~/telos/hackernews/` |
-| clickup | Project standup via MCP | `~/telos/clickup/` |
+| hackernews | HN frontpage summaries | `~/obsidian/telos/hackernews/` |
+| clickup | Project standup via MCP | `~/obsidian/telos/clickup/` |
 | apple-calendar | Calendar.app integration (ported from OpenClaw) | stdout |
 
 Agents come in two modes:
@@ -181,6 +181,45 @@ Agents can connect to external tool servers via `mcp.json`:
 
 MCP tools and built-in tools are available side by side during execution.
 
+## Discord bot
+
+Telos includes a Discord bot that runs locally and connects to your server. Same routing, same skills — just type in a `#telos` channel instead of a terminal.
+
+```bash
+# Add your bot token to the env
+echo 'DISCORD_BOT_TOKEN=your-token-here' >> ~/.config/telos/.env
+
+# Test it manually
+uv run telos bot
+
+# Run as a launchd service (auto-starts on login, restarts on crash)
+launchctl load ~/Library/LaunchAgents/com.telos.discord-bot.plist
+```
+
+In Discord, send messages in the `#telos` channel:
+
+```
+frontpage                              # routes to default agent
+--agent arxiv trending in cs.CL       # target a specific agent
+--agent clickup standup                # MCP skills work too
+```
+
+Health check and management:
+
+```bash
+# Verify it's running
+launchctl list | grep telos
+
+# View logs
+tail -f ~/.local/share/telos/logs/discord-bot.log
+
+# Restart
+launchctl kickstart -k gui/$(id -u)/com.telos.discord-bot
+
+# Stop
+launchctl unload ~/Library/LaunchAgents/com.telos.discord-bot.plist
+```
+
 ## Logging
 
 Every execution is logged to `~/.local/share/telos/logs/YYYY-MM-DD.jsonl`:
@@ -204,6 +243,7 @@ src/telos/
   logger.py         # per-day JSONL logging
   installer.py      # pack install/uninstall
   interactive.py    # interactive mode
+  discord_bot.py    # Discord bot frontend
 ```
 
 ## License

@@ -40,7 +40,7 @@ class TestReadAgentToml:
         agent_toml.write_text('name = "gmail"\n')
         result = read_agent_toml(tmp_path)
         assert result["executor"] == "claude_code"
-        assert result["working_dir"] == "."
+        assert result["working_dir"] == "~/obsidian/telos/gmail"
 
     def test_description_defaults_to_empty(self, tmp_path):
         agent_toml = tmp_path / "agent.toml"

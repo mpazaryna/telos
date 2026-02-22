@@ -47,13 +47,13 @@ telos list-skills     # should show trending, search, summarize
 Fetch the latest papers from an arXiv category, grouped by theme.
 
 ```bash
-telos --agent arxiv "trending"                # defaults to cs.AI
-telos --agent arxiv "trending in cs.CL"       # computational linguistics
+uv run telos --agent arxiv "trending"                # defaults to cs.AI
+uv run telos --agent arxiv "trending in cs.CL"       # computational linguistics
 telos --agent arxiv "trending in cs.LG"       # machine learning
 telos --agent arxiv "trending in stat.ML"     # statistical ML
 ```
 
-Output: `~/telos/arxiv/YYYY-MM-DD-trending-{category}.md`
+Output: `~/obsidian/telos/arxiv/YYYY-MM-DD-trending-{category}.md`
 
 Common categories: `cs.AI`, `cs.LG`, `cs.CL`, `cs.CV`, `cs.SE`, `stat.ML`, `math.OC`
 
@@ -67,7 +67,7 @@ telos --agent arxiv "search multi-agent reinforcement learning"
 telos --agent arxiv "search code generation with LLMs"
 ```
 
-Output: `~/telos/arxiv/YYYY-MM-DD-search-{topic-slug}.md`
+Output: `~/obsidian/telos/arxiv/YYYY-MM-DD-search-{topic-slug}.md`
 
 ### Summarize a paper
 
@@ -78,7 +78,7 @@ telos --agent arxiv "summarize 2501.12345"
 telos --agent arxiv "summarize https://arxiv.org/abs/2501.12345"
 ```
 
-Output: `~/telos/arxiv/YYYY-MM-DD-summary-{paper-id}.md`
+Output: `~/obsidian/telos/arxiv/YYYY-MM-DD-summary-{paper-id}.md`
 
 The summary includes: title, authors, problem statement, approach, key results, and significance.
 

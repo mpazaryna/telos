@@ -291,5 +291,14 @@ default_agent = ""
     console.print("Edit it to register your agents, then run [bold]telos agents[/bold] to verify.")
 
 
+@app.command()
+def bot() -> None:
+    """Start the Discord bot."""
+    from telos.discord_bot import start_bot
+
+    console.print("[bold green]Starting telos Discord bot...[/bold green]")
+    start_bot()
+
+
 if __name__ == "__main__":
     app()
