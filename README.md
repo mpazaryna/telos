@@ -96,6 +96,38 @@ uv run telos --dry-run "standup"
 uv run telos
 ```
 
+## Discord bot
+
+Built-in bot. Runs locally, connects to your server. Same routing, same skills — type in a `#telos` channel instead of a terminal.
+
+```bash
+echo 'DISCORD_BOT_TOKEN=your-token-here' >> ~/.config/telos/.env
+uv run telos bot
+```
+
+Or run as a launchd service (auto-starts on login, restarts on crash):
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.telos.discord-bot.plist
+```
+
+In Discord:
+
+```
+frontpage                              # routes across all agents
+--agent arxiv trending in cs.CL       # target a specific agent
+--agent clickup standup                # MCP skills work too
+```
+
+Management:
+
+```bash
+launchctl list | grep telos                                        # running?
+tail -f ~/.local/share/telos/logs/discord-bot.log                  # logs
+launchctl kickstart -k gui/$(id -u)/com.telos.discord-bot          # restart
+launchctl unload ~/Library/LaunchAgents/com.telos.discord-bot.plist # stop
+```
+
 ## License
 
 MIT
