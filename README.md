@@ -1,10 +1,10 @@
 # telos
 
-*Telos* (τέλος) is an Ancient Greek word meaning "end," "purpose," or "ultimate aim." For Aristotle, the *telos* of a thing was the reason it existed — not what it was made of, but what it was *for*. An acorn's telos is an oak tree. A knife's telos is to cut.
+*Telos* (τέλος) — Greek for "end" or "purpose." The telos of a thing is the reason it exists. An acorn's telos is an oak tree. A knife's telos is to cut.
 
-The telos of a runtime is to disappear. To be so thin that all the value lives in the skills it executes and the models that interpret them. That's this project.
+The telos of a runtime is to disappear. This one is getting close.
 
-A lightweight agent runtime. Skills are markdown files, models are API calls, and the whole thing runs locally in under 1000 lines of Python.
+A lightweight agent runtime. Skills are markdown files, models are API calls, the whole thing runs locally in under 1000 lines of Python.
 
 ```
 telos "hacker news frontpage"
@@ -14,34 +14,34 @@ telos --agent apple-calendar "list my calendars"
 
 ## What it does
 
-Telos accepts natural language, routes to the right skill, and executes it via direct LLM API calls with tool use. A **skill** is a `SKILL.md` file — a markdown document that tells the model what to do, what tools to use, and how to format the output. No DSL, no pipeline config, no framework lock-in.
+You type natural language. Telos routes to the right skill and executes it via direct LLM API calls with tool use. A skill is a `SKILL.md` file — markdown that tells the model what to do, what tools to use, how to format the output. No DSL, no pipeline config, no framework lock-in.
 
-- **Provider-agnostic.** Anthropic by default, Ollama for local/offline. Swap with one env var.
-- **Compatible with [OpenClaw](https://github.com/openclaw/skills).** Skills from the ecosystem work without modification.
-- **Discord included.** A built-in bot lets you run skills from any device.
-- **Small enough to audit.** The entire engine is under 1000 lines of Python.
+- **Provider-agnostic.** Anthropic by default, Ollama for local/offline. One env var to swap.
+- **OpenClaw compatible.** Skills from the [ecosystem](https://github.com/openclaw/skills) just work.
+- **Discord included.** Built-in bot, same routing, run skills from any device.
+- **Small enough to audit.** The whole engine fits in your head.
 
-## Why this matters
+## Why it's built this way
 
-For decades, the runtime *was* the moat. You paid Oracle for the database, Salesforce for the CRM, Microsoft for the BI layer. The logic, the workflows, the integrations — all locked inside proprietary runtimes. You couldn't take your stuff and leave. That was the business model.
+The runtime used to be the moat. You paid Oracle for the database, Salesforce for the CRM, Microsoft for the BI layer. Your logic was locked inside their runtime. That was the business model.
 
-Now a skill is a markdown file. The logic is human-readable. The integrations are MCP servers anyone can stand up. The model is an API call. There's nothing left to lock in.
+Now a skill is a markdown file. The integrations are MCP servers anyone can stand up. The model is an API call. There's nothing left to lock in.
 
-The runtime is commoditized. The value is in the **skills** — the accumulated knowledge of *how* to do something — and the **models** that interpret them. Everything in between is interchangeable plumbing. Write a skill once, run it anywhere.
+The value is in the skills — the accumulated knowledge of *how* to do something — and the models that interpret them. Everything in between is plumbing. Write a skill once, run it anywhere.
 
-## Skills are the new spreadsheets
+## Skills as personal assets
 
-In the early 1990s, a spreadsheet was a personal asset. You built it yourself, on your machine, encoding domain knowledge into formulas and layouts that nobody else had. It wasn't software — it was *your* logic, saved as a file. The tool that ran it (Lotus 1-2-3, then Excel) was interchangeable. What mattered was the `.xls`.
+In the early 1990s a spreadsheet was a personal asset. You built it yourself, encoding domain knowledge into formulas nobody else had. The tool that ran it (Lotus 1-2-3, then Excel) was interchangeable. What mattered was the `.xls`.
 
-Skills are the same pattern, one abstraction level up. A `SKILL.md` encodes domain expertise — how to summarize a frontpage, how to run a standup, how to triage a calendar — in a file that any runtime can execute. You build it yourself. You keep it in `~/.skills/`. You carry it between machines. The runtime is commodity plumbing. The skill is the asset.
+Skills are the same pattern, one level up. A `SKILL.md` encodes domain expertise — how to summarize a frontpage, run a standup, triage a calendar — in a file any runtime can execute. You keep it in `~/.skills/`. You carry it between machines. The runtime is plumbing. The skill is the asset.
 
-The difference is what sits between the file and the output. A spreadsheet had a formula engine. A skill has an LLM. The formulas were rigid — `=SUM(B2:B10)`. The instructions are natural language — *"fetch the RSS feed, group by theme, write a summary."* Same pattern: personal automation, portable files, interchangeable engines. But the ceiling on what a single file can do is incomparably higher.
+The difference is what sits between the file and the output. A spreadsheet had a formula engine. A skill has an LLM. The formulas were rigid — `=SUM(B2:B10)`. The instructions are natural language — *"fetch the RSS feed, group by theme, write a summary."* Same pattern: portable files, interchangeable engines. But the ceiling on what a single file can do is incomparably higher.
 
-This is why `~/.skills/` matters. It's not a framework convention. It's a personal library — like `~/Documents` but for automation. Each skill is a piece of operational knowledge that compounds over time. The consultant who builds twenty skills for their domain has twenty reusable assets that work with any model, on any runtime, from any device.
+`~/.skills/` is a personal library — like `~/Documents` but for automation. Each skill compounds over time. Twenty skills for your domain is twenty reusable assets that work with any model, on any runtime, from any device.
 
-## How telos compares
+## How it compares
 
-The pattern is converging. [Goose](https://github.com/block/goose) (Block), Claude Code, Codex — everyone is landing on the same architecture: markdown skills, model API calls, tool use, MCP. The differences are in packaging.
+The pattern is converging. [Goose](https://github.com/block/goose) (Block), Claude Code, Codex — everyone is landing on the same architecture: markdown skills, model API calls, tool use, MCP. The differences are packaging.
 
 | | Telos | Goose | Claude Code |
 |---|---|---|---|
@@ -53,7 +53,7 @@ The pattern is converging. [Goose](https://github.com/block/goose) (Block), Clau
 | Persistence | Obsidian vault | Filesystem | Filesystem |
 | Codebase | Fits in your head | Large | Proprietary |
 
-Telos is small by design. The value isn't in the runtime — it's in the skills you write for your domain and the workflows you compose from them.
+Telos is small by design. The value isn't in the runtime.
 
 ## How it works
 
@@ -63,7 +63,7 @@ Telos is small by design. The value isn't in the runtime — it's in the skills 
                                                         → write_file(2026-02-21-frontpage.md)
 ```
 
-1. **Route** — keyword match first (zero API cost), then Claude API for fuzzy intent
+1. **Route** — keyword match first (zero API cost), then LLM for fuzzy intent
 2. **Execute** — stream completion with tools in a loop (up to 20 rounds)
 3. **Tools** — built-in file I/O + URL fetching, plus MCP servers for external APIs
 4. **Persist** — output streams to terminal and saves to `~/obsidian/telos/<agent>/`
@@ -85,7 +85,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 EOF
 ```
 
-Initialize and install the bundled packs:
+Install the bundled packs:
 
 ```bash
 uv run telos init
@@ -94,21 +94,21 @@ uv run telos install packs/clickup
 uv run telos install packs/kairos
 ```
 
-Packs are installed to `~/.skills/` and discovered automatically. Override the location with `TELOS_SKILLS_DIR`.
+Packs land in `~/.skills/` and are discovered automatically. Override with `TELOS_SKILLS_DIR`.
 
 ## Usage
 
 ```bash
-# Routes across all agents automatically
+# Routes across all agents
 uv run telos "run daily kickoff"
 
 # Target a specific agent
 uv run telos --agent hackernews "frontpage"
 
-# See what would match without executing
+# Dry run — see what matches without executing
 uv run telos --dry-run "standup"
 
-# Interactive mode — browse agents and skills
+# Interactive mode
 uv run telos
 ```
 
@@ -125,7 +125,7 @@ apple-calendar/
     cal-read.sh
 ```
 
-The `SKILL.md` is the entire configuration:
+The `SKILL.md` is the whole configuration:
 
 ```markdown
 ---
@@ -144,24 +144,24 @@ Write to `YYYY-MM-DD-frontpage.md`.
 
 No config files. No pipeline DSL. The skill *is* the configuration.
 
-This format is compatible with [OpenClaw](https://github.com/openclaw/skills) and [ClawHub](https://clawhub.ai) — skills from either source work without modification. The `agent.toml` wrapper that telos uses for installation is scaffolding — the skill itself is just the folder.
+Compatible with [OpenClaw](https://github.com/openclaw/skills) and [ClawHub](https://clawhub.ai) — skills from either source work without modification. The `agent.toml` wrapper is scaffolding. The skill itself is just the folder.
 
 ## Agents
 
 An agent is a named profile with a skills directory and a working directory:
 
-| Agent | Description | Output |
+| Agent | What it does | Output |
 |-------|-------------|--------|
-| kairos | Personal productivity — daily notes, weekly summaries (Obsidian) | Obsidian vault |
+| kairos | Daily notes, weekly summaries (Obsidian) | Obsidian vault |
 | hackernews | HN frontpage summaries | `~/obsidian/telos/hackernews/` |
 | clickup | Project standup via MCP | `~/obsidian/telos/clickup/` |
 | apple-calendar | Calendar.app integration (ported from OpenClaw) | stdout |
 
-Agents live in `~/.skills/` and are discovered automatically. Each agent is a directory with a `skills/` subdirectory. The optional `agent.toml` provides metadata overrides. Use `agents.toml` for working directory overrides only.
+Agents live in `~/.skills/` and are discovered automatically. Each agent is a directory with a `skills/` subdirectory. Optional `agent.toml` for metadata overrides. `agents.toml` for working directory overrides only.
 
 ## Providers
 
-Telos uses a Provider protocol. Swap backends with environment variables:
+Swap backends with environment variables:
 
 ```bash
 # Anthropic (default)
@@ -176,9 +176,9 @@ OLLAMA_BASE_URL=http://localhost:11434/v1
 
 ## Built-in tools
 
-Every skill has access to:
+Every skill gets these:
 
-| Tool | Purpose |
+| Tool | What it does |
 |------|---------|
 | `write_file` | Write content to a file (creates dirs) |
 | `read_file` | Read file contents |
@@ -186,11 +186,11 @@ Every skill has access to:
 | `fetch_url` | Fetch a URL and return the body |
 | `run_command` | Run a shell command (60s timeout) |
 
-File paths resolve relative to the agent's `working_dir` (output directory). Shell commands run in the agent's `pack_dir` (`~/.skills/<name>/`) so companion scripts are found automatically.
+File paths resolve relative to `working_dir` (output directory). Shell commands run in `pack_dir` (`~/.skills/<name>/`) so companion scripts are found automatically.
 
-## MCP integration
+## MCP
 
-Agents can connect to external tool servers via `mcp.json`:
+Agents connect to external tool servers via `mcp.json`:
 
 ```json
 {
@@ -204,24 +204,24 @@ Agents can connect to external tool servers via `mcp.json`:
 }
 ```
 
-MCP tools and built-in tools are available side by side during execution.
+MCP tools and built-in tools are available side by side.
 
 ## Discord bot
 
-Telos includes a Discord bot that runs locally and connects to your server. Same routing, same skills — just type in a `#telos` channel instead of a terminal.
+Built-in bot. Runs locally, connects to your server. Same routing, same skills — type in a `#telos` channel instead of a terminal.
 
 ```bash
-# Add your bot token to the env
 echo 'DISCORD_BOT_TOKEN=your-token-here' >> ~/.config/telos/.env
-
-# Test it manually
 uv run telos bot
+```
 
-# Run as a launchd service (auto-starts on login, restarts on crash)
+Or run as a launchd service (auto-starts on login, restarts on crash):
+
+```bash
 launchctl load ~/Library/LaunchAgents/com.telos.discord-bot.plist
 ```
 
-In Discord, send messages in the `#telos` channel:
+In Discord:
 
 ```
 frontpage                              # routes across all agents
@@ -229,25 +229,18 @@ frontpage                              # routes across all agents
 --agent clickup standup                # MCP skills work too
 ```
 
-Health check and management:
+Management:
 
 ```bash
-# Verify it's running
-launchctl list | grep telos
-
-# View logs
-tail -f ~/.local/share/telos/logs/discord-bot.log
-
-# Restart
-launchctl kickstart -k gui/$(id -u)/com.telos.discord-bot
-
-# Stop
-launchctl unload ~/Library/LaunchAgents/com.telos.discord-bot.plist
+launchctl list | grep telos                                        # running?
+tail -f ~/.local/share/telos/logs/discord-bot.log                  # logs
+launchctl kickstart -k gui/$(id -u)/com.telos.discord-bot          # restart
+launchctl unload ~/Library/LaunchAgents/com.telos.discord-bot.plist # stop
 ```
 
 ## Logging
 
-Every execution is logged to `~/.local/share/telos/logs/YYYY-MM-DD.jsonl`:
+Every run is logged to `~/.local/share/telos/logs/YYYY-MM-DD.jsonl`:
 
 ```json
 {"ts": "...", "event": "skill_start", "provider": "anthropic", "model": "claude-haiku-4-5", "has_mcp": false}
@@ -259,7 +252,7 @@ Every execution is logged to `~/.local/share/telos/logs/YYYY-MM-DD.jsonl`:
 
 ```
 src/telos/
-  main.py           # CLI commands (typer)
+  main.py           # CLI (typer)
   config.py         # agent discovery from ~/.skills/ + overrides
   router.py         # skill discovery + intent routing
   executor.py       # execution engine, tool loops
@@ -268,7 +261,7 @@ src/telos/
   logger.py         # per-day JSONL logging
   installer.py      # pack install/uninstall to ~/.skills/
   interactive.py    # interactive mode
-  discord_bot.py    # Discord bot frontend
+  discord_bot.py    # Discord bot
 ```
 
 ## License
