@@ -1,5 +1,9 @@
 # telos
 
+*Telos* (τέλος) is an Ancient Greek word meaning "end," "purpose," or "ultimate aim." For Aristotle, the *telos* of a thing was the reason it existed — not what it was made of, but what it was *for*. An acorn's telos is an oak tree. A knife's telos is to cut.
+
+The telos of a runtime is to disappear. To be so thin that all the value lives in the skills it executes and the models that interpret them. That's this project.
+
 A lightweight agent runtime. Skills are markdown files, models are API calls, and the whole thing runs locally in under 1000 lines of Python.
 
 ```
