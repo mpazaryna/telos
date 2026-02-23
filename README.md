@@ -25,6 +25,32 @@ Now a skill is a markdown file. The logic is human-readable. The integrations ar
 
 The runtime is commoditized. The value is in the **skills** — the accumulated knowledge of *how* to do something — and the **models** that interpret them. Everything in between is interchangeable plumbing. Write a skill once, run it anywhere.
 
+## Skills are the new spreadsheets
+
+In the early 1990s, a spreadsheet was a personal asset. You built it yourself, on your machine, encoding domain knowledge into formulas and layouts that nobody else had. It wasn't software — it was *your* logic, saved as a file. The tool that ran it (Lotus 1-2-3, then Excel) was interchangeable. What mattered was the `.xls`.
+
+Skills are the same pattern, one abstraction level up. A `SKILL.md` encodes domain expertise — how to summarize a frontpage, how to run a standup, how to triage a calendar — in a file that any runtime can execute. You build it yourself. You keep it in `~/.skills/`. You carry it between machines. The runtime is commodity plumbing. The skill is the asset.
+
+The difference is what sits between the file and the output. A spreadsheet had a formula engine. A skill has an LLM. The formulas were rigid — `=SUM(B2:B10)`. The instructions are natural language — *"fetch the RSS feed, group by theme, write a summary."* Same pattern: personal automation, portable files, interchangeable engines. But the ceiling on what a single file can do is incomparably higher.
+
+This is why `~/.skills/` matters. It's not a framework convention. It's a personal library — like `~/Documents` but for automation. Each skill is a piece of operational knowledge that compounds over time. The consultant who builds twenty skills for their domain has twenty reusable assets that work with any model, on any runtime, from any device.
+
+## How telos compares
+
+The pattern is converging. [Goose](https://github.com/block/goose) (Block), Claude Code, Codex — everyone is landing on the same architecture: markdown skills, model API calls, tool use, MCP. The differences are in packaging.
+
+| | Telos | Goose | Claude Code |
+|---|---|---|---|
+| Language | Python (~1000 LOC) | Rust | Node.js |
+| Skills format | SKILL.md | SKILL.md (OpenClaw) | commands/ |
+| Providers | Anthropic, Ollama | Multi-provider | Anthropic only |
+| MCP support | Yes | Yes | Yes |
+| Discord bot | Built-in | Community experiment | No |
+| Persistence | Obsidian vault | Filesystem | Filesystem |
+| Codebase | Fits in your head | Large | Proprietary |
+
+Telos is small by design. The value isn't in the runtime — it's in the skills you write for your domain and the workflows you compose from them.
+
 ## How it works
 
 ```
@@ -64,10 +90,12 @@ uv run telos install packs/clickup
 uv run telos install packs/kairos
 ```
 
+Packs are installed to `~/.skills/` and discovered automatically. Override the location with `TELOS_SKILLS_DIR`.
+
 ## Usage
 
 ```bash
-# Run against default agent
+# Routes across all agents automatically
 uv run telos "run daily kickoff"
 
 # Target a specific agent
@@ -125,9 +153,7 @@ An agent is a named profile with a skills directory and a working directory:
 | clickup | Project standup via MCP | `~/obsidian/telos/clickup/` |
 | apple-calendar | Calendar.app integration (ported from OpenClaw) | stdout |
 
-Agents come in two modes:
-- **Linked** — skills live in an external directory (e.g. Obsidian vault), read live on every run
-- **Installed** — skills managed by telos at `~/.local/share/telos/agents/`
+Agents live in `~/.skills/` and are discovered automatically. Each agent is a directory with a `skills/` subdirectory. The optional `agent.toml` provides metadata overrides. Use `agents.toml` for working directory overrides only.
 
 ## Providers
 
@@ -156,7 +182,7 @@ Every skill has access to:
 | `fetch_url` | Fetch a URL and return the body |
 | `run_command` | Run a shell command (60s timeout) |
 
-File paths resolve relative to the agent's `working_dir`. Shell commands run in the same directory.
+File paths resolve relative to the agent's `working_dir` (output directory). Shell commands run in the agent's `pack_dir` (`~/.skills/<name>/`) so companion scripts are found automatically.
 
 ## MCP integration
 
@@ -194,7 +220,7 @@ launchctl load ~/Library/LaunchAgents/com.telos.discord-bot.plist
 In Discord, send messages in the `#telos` channel:
 
 ```
-frontpage                              # routes to default agent
+frontpage                              # routes across all agents
 --agent arxiv trending in cs.CL       # target a specific agent
 --agent clickup standup                # MCP skills work too
 ```
@@ -230,13 +256,13 @@ Every execution is logged to `~/.local/share/telos/logs/YYYY-MM-DD.jsonl`:
 ```
 src/telos/
   main.py           # CLI commands (typer)
-  config.py         # agents.toml loading
+  config.py         # agent discovery from ~/.skills/ + overrides
   router.py         # skill discovery + intent routing
   executor.py       # execution engine, tool loops
   provider.py       # Provider protocol, Anthropic + Ollama
   mcp_client.py     # MCP SSE/HTTP client
   logger.py         # per-day JSONL logging
-  installer.py      # pack install/uninstall
+  installer.py      # pack install/uninstall to ~/.skills/
   interactive.py    # interactive mode
   discord_bot.py    # Discord bot frontend
 ```

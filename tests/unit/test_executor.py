@@ -182,6 +182,84 @@ class TestBuiltinTools:
         assert names == {"write_file", "read_file", "list_directory", "fetch_url", "run_command"}
 
 
+class TestBuiltinToolsDualCwd:
+    """Tests for command_cwd parameter in _execute_builtin_tool."""
+
+    def test_run_command_uses_command_cwd(self, tmp_path):
+        """run_command uses command_cwd when set, not cwd."""
+        file_cwd = tmp_path / "output"
+        file_cwd.mkdir()
+        cmd_cwd = tmp_path / "pack"
+        cmd_cwd.mkdir()
+        (cmd_cwd / "script.sh").write_text("#!/bin/sh\necho from-pack")
+
+        result = _execute_builtin_tool(
+            "run_command", {"command": "pwd"}, file_cwd, command_cwd=cmd_cwd
+        )
+        assert not result.is_error
+        assert str(cmd_cwd) in result.content
+
+    def test_run_command_falls_back_to_cwd(self, tmp_path):
+        """run_command uses cwd when command_cwd is None."""
+        result = _execute_builtin_tool(
+            "run_command", {"command": "pwd"}, tmp_path, command_cwd=None
+        )
+        assert not result.is_error
+        assert str(tmp_path) in result.content
+
+    def test_write_file_ignores_command_cwd(self, tmp_path):
+        """write_file always uses cwd, regardless of command_cwd."""
+        file_cwd = tmp_path / "output"
+        file_cwd.mkdir()
+        cmd_cwd = tmp_path / "pack"
+        cmd_cwd.mkdir()
+
+        result = _execute_builtin_tool(
+            "write_file",
+            {"path": "test.md", "content": "hello"},
+            file_cwd,
+            command_cwd=cmd_cwd,
+        )
+        assert not result.is_error
+        assert (file_cwd / "test.md").exists()
+        assert not (cmd_cwd / "test.md").exists()
+
+    def test_read_file_ignores_command_cwd(self, tmp_path):
+        """read_file always uses cwd, regardless of command_cwd."""
+        file_cwd = tmp_path / "output"
+        file_cwd.mkdir()
+        (file_cwd / "data.txt").write_text("from-output")
+        cmd_cwd = tmp_path / "pack"
+        cmd_cwd.mkdir()
+
+        result = _execute_builtin_tool(
+            "read_file",
+            {"path": "data.txt"},
+            file_cwd,
+            command_cwd=cmd_cwd,
+        )
+        assert not result.is_error
+        assert result.content == "from-output"
+
+    def test_list_directory_ignores_command_cwd(self, tmp_path):
+        """list_directory always uses cwd, regardless of command_cwd."""
+        file_cwd = tmp_path / "output"
+        file_cwd.mkdir()
+        (file_cwd / "a.txt").touch()
+        cmd_cwd = tmp_path / "pack"
+        cmd_cwd.mkdir()
+        (cmd_cwd / "b.txt").touch()
+
+        result = _execute_builtin_tool(
+            "list_directory",
+            {"path": "."},
+            file_cwd,
+            command_cwd=cmd_cwd,
+        )
+        assert "a.txt" in result.content
+        assert "b.txt" not in result.content
+
+
 class TestExecuteSkill:
     """Tests for execute_skill with mocked provider."""
 
@@ -264,3 +342,19 @@ class TestExecuteSkill:
 
         with pytest.raises(SystemExit):
             execute_skill("body", working_dir=tmp_path, env_path=env_file)
+
+    @patch("telos.executor._create_provider")
+    def test_pack_dir_passed_through(self, mock_create, tmp_path, monkeypatch):
+        """pack_dir is accepted without error."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        mock_provider = MagicMock()
+        mock_provider.stream_completion.return_value = iter(
+            [StreamEvent(type="done", stop_reason="end_turn")]
+        )
+        mock_create.return_value = mock_provider
+
+        pack = tmp_path / "pack"
+        pack.mkdir()
+
+        execute_skill("body", working_dir=tmp_path, pack_dir=pack)
+        mock_create.assert_called_once()

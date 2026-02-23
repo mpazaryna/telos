@@ -13,10 +13,18 @@ mode, or Discord bot.
   companion scripts. Compatible with OpenClaw and ClawHub. The runtime is
   interchangeable — the skill is the product.
 
+- **`~/.skills/` is the canonical agent source.** All agent packs live in `~/.skills/`.
+  Discovery scans this directory automatically. `agents.toml` exists for overrides only
+  (working_dir, default agent). Override location with `TELOS_SKILLS_DIR` env var.
+
 - **agent.toml is scaffolding, not a requirement.** It exists to override defaults
-  (working_dir, name, description) but the goal is to make it optional. A bare SKILL.md
-  folder should be a valid installable unit. Name from directory, description from
-  frontmatter, working_dir defaults to `~/obsidian/telos/<name>/`.
+  (working_dir, name, description). A bare SKILL.md folder is a valid installable unit.
+  Name from directory, description from frontmatter, working_dir defaults to
+  `~/obsidian/telos/<name>/`.
+
+- **Dual working directories.** File tools (write_file, read_file, list_directory)
+  resolve relative to the agent's `working_dir` (Obsidian output). `run_command` uses
+  `pack_dir` (the pack directory in `~/.skills/`) so companion scripts are found.
 
 - **Direct API, no subprocess.** Execution uses LLM SDKs directly, not a CLI
   subprocess. No cold start overhead per execution.
@@ -36,13 +44,13 @@ mode, or Discord bot.
 ```
 src/telos/
   main.py           # CLI commands (typer)
-  config.py         # agents.toml loading, Agent dataclass
+  config.py         # agent discovery from ~/.skills/ + agents.toml overrides
   router.py         # skill discovery + intent routing
-  executor.py       # execution engine, tool-use loops
+  executor.py       # execution engine, tool-use loops, dual cwd
   provider.py       # Provider protocol, Anthropic + Ollama
   mcp_client.py     # MCP SSE/HTTP client
   logger.py         # per-day JSONL logging
-  installer.py      # pack install/uninstall + scripts copy
+  installer.py      # pack install/uninstall (copytree to ~/.skills/)
   interactive.py    # interactive agent/skill selection
 
 packs/              # bundled agent packs

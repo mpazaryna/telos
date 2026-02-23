@@ -74,8 +74,13 @@ BUILTIN_TOOLS = [
 ]
 
 
-def _execute_builtin_tool(name: str, arguments: dict, cwd: Path) -> ToolResult:
-    """Execute a built-in file system tool."""
+def _execute_builtin_tool(name: str, arguments: dict, cwd: Path, command_cwd: Path | None = None) -> ToolResult:
+    """Execute a built-in file system tool.
+
+    File tools (write_file, read_file, list_directory) resolve relative to ``cwd``.
+    ``run_command`` uses ``command_cwd`` when set (pack directory for companion scripts),
+    falling back to ``cwd``.
+    """
     try:
         if name == "write_file":
             target = (cwd / arguments["path"]).resolve()
@@ -101,10 +106,11 @@ def _execute_builtin_tool(name: str, arguments: dict, cwd: Path) -> ToolResult:
         elif name == "run_command":
             import subprocess
 
+            run_cwd = command_cwd if command_cwd is not None else cwd
             result = subprocess.run(
                 arguments["command"],
                 shell=True,
-                cwd=str(cwd),
+                cwd=str(run_cwd),
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -197,7 +203,7 @@ def resolve_working_dir(working_dir: Path) -> Path:
     return expanded
 
 
-def _execute_simple(provider: AnthropicProvider | OllamaProvider, prompt: str, cwd: Path, log_ctx: dict) -> None:
+def _execute_simple(provider: AnthropicProvider | OllamaProvider, prompt: str, cwd: Path, log_ctx: dict, command_cwd: Path | None = None) -> None:
     """Execute a skill with built-in file system tools."""
     system = "Follow the instructions carefully and provide a helpful response. Use the available tools to read and write files as needed."
     messages: list[dict] = [{"role": "user", "content": prompt}]
@@ -246,7 +252,7 @@ def _execute_simple(provider: AnthropicProvider | OllamaProvider, prompt: str, c
         # Execute tools and build results
         tool_results: list[dict] = []
         for tc in tool_calls:
-            result = _execute_builtin_tool(tc.name, tc.arguments, cwd)
+            result = _execute_builtin_tool(tc.name, tc.arguments, cwd, command_cwd=command_cwd)
             log_ctx["tool_calls"] += 1
             log_tool_call(tc.name, result.is_error)
             tool_results.append(
@@ -271,6 +277,7 @@ async def _execute_with_mcp(
     env: dict[str, str],
     log_ctx: dict,
     cwd: Path,
+    command_cwd: Path | None = None,
 ) -> None:
     """Execute a skill with MCP tools + built-in file tools."""
     from telos.mcp_client import connect_mcp_servers
@@ -317,7 +324,7 @@ async def _execute_with_mcp(
             tool_results: list[dict] = []
             for tc in tool_calls:
                 if tc.name in builtin_names:
-                    result = _execute_builtin_tool(tc.name, tc.arguments, cwd)
+                    result = _execute_builtin_tool(tc.name, tc.arguments, cwd, command_cwd=command_cwd)
                 else:
                     result = await mcp_ctx.call_tool(tc.name, tc.arguments)
                 log_ctx["tool_calls"] += 1
@@ -343,13 +350,19 @@ def execute_skill(
     env_path: Path | None = None,
     user_request: str | None = None,
     mcp_config_path: Path | None = None,
+    pack_dir: Path | None = None,
 ) -> None:
     """Execute a skill via direct API call.
+
+    File tools resolve relative to ``working_dir`` (output directory).
+    ``run_command`` uses ``pack_dir`` when set (for companion scripts),
+    falling back to ``working_dir``.
 
     Streams output to stdout.
     Raises SystemExit on errors.
     """
     cwd = resolve_working_dir(working_dir)
+    command_cwd = pack_dir if pack_dir is not None else None
 
     if env_path is not None:
         env = load_env(env_path)
@@ -364,9 +377,9 @@ def execute_skill(
 
     try:
         if mcp_config_path is not None:
-            asyncio.run(_execute_with_mcp(provider, prompt, mcp_config_path, env, log_ctx, cwd))
+            asyncio.run(_execute_with_mcp(provider, prompt, mcp_config_path, env, log_ctx, cwd, command_cwd=command_cwd))
         else:
-            _execute_simple(provider, prompt, cwd, log_ctx)
+            _execute_simple(provider, prompt, cwd, log_ctx, command_cwd=command_cwd)
     except Exception as e:
         log_skill_end(log_ctx, [], error=str(e))
         raise

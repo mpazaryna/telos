@@ -12,48 +12,44 @@ from telos.router import discover_skills, route_intent
 class TestConfigToRouter:
     """Integration: load config, discover skills, route intent."""
 
-    def _setup_agent(self, tmp_path):
-        """Create a config and skills directory for testing."""
-        skills_dir = tmp_path / "skills"
-        skills_dir.mkdir()
-        (skills_dir / "kickoff").mkdir()
-        (skills_dir / "kickoff" / "SKILL.md").write_text("---\ndescription: Morning orientation\n---\n# Kickoff\nStart the day")
-        (skills_dir / "shutdown").mkdir()
-        (skills_dir / "shutdown" / "SKILL.md").write_text("---\ndescription: End of day wrap-up\n---\n# Shutdown\nWrap up")
+    def _setup_agent(self, tmp_path, monkeypatch):
+        """Create a skills dir and config for testing."""
+        skills_dir = tmp_path / "skills_home"
+        monkeypatch.setenv("TELOS_SKILLS_DIR", str(skills_dir))
+
+        # Set up agent pack at ~/.skills/kairos/
+        pack = skills_dir / "kairos"
+        skills = pack / "skills"
+        (skills / "kickoff").mkdir(parents=True)
+        (skills / "kickoff" / "SKILL.md").write_text("---\ndescription: Morning orientation\n---\n# Kickoff\nStart the day")
+        (skills / "shutdown").mkdir()
+        (skills / "shutdown" / "SKILL.md").write_text("---\ndescription: End of day wrap-up\n---\n# Shutdown\nWrap up")
+        (pack / "agent.toml").write_text(f'name = "kairos"\ndescription = "Personal productivity"\nworking_dir = "{tmp_path}"\n')
 
         config = tmp_path / "agents.toml"
-        config.write_text(f"""\
-[defaults]
-default_agent = "kairos"
-
-[agents.kairos]
-mode = "linked"
-description = "Personal productivity"
-skills_dir = "{skills_dir}"
-working_dir = "{tmp_path}"
-""")
+        config.write_text("")  # empty — discovery handles everything
         return config
 
-    def test_load_config_then_discover_skills(self, tmp_path):
-        config = self._setup_agent(tmp_path)
-        agents, default_agent = load_config(config)
-        agent = agents[default_agent]
+    def test_load_config_then_discover_skills(self, tmp_path, monkeypatch):
+        config = self._setup_agent(tmp_path, monkeypatch)
+        agents = load_config(config)
+        agent = agents["kairos"]
         skills = discover_skills(agent.skills_dir)
         assert len(skills) == 2
 
-    def test_keyword_routing_end_to_end(self, tmp_path):
-        config = self._setup_agent(tmp_path)
-        agents, default_agent = load_config(config)
-        agent = agents[default_agent]
+    def test_keyword_routing_end_to_end(self, tmp_path, monkeypatch):
+        config = self._setup_agent(tmp_path, monkeypatch)
+        agents = load_config(config)
+        agent = agents["kairos"]
         skills = discover_skills(agent.skills_dir)
         result = route_intent("run kickoff", skills)
         assert result is not None
         assert result.name == "kickoff"
 
     def test_api_routing_end_to_end(self, tmp_path, monkeypatch):
-        config = self._setup_agent(tmp_path)
-        agents, default_agent = load_config(config)
-        agent = agents[default_agent]
+        config = self._setup_agent(tmp_path, monkeypatch)
+        agents = load_config(config)
+        agent = agents["kairos"]
         skills = discover_skills(agent.skills_dir)
 
         mock_client = MagicMock()
@@ -67,9 +63,9 @@ working_dir = "{tmp_path}"
         assert result.name == "shutdown"
 
     def test_no_match_end_to_end(self, tmp_path, monkeypatch):
-        config = self._setup_agent(tmp_path)
-        agents, default_agent = load_config(config)
-        agent = agents[default_agent]
+        config = self._setup_agent(tmp_path, monkeypatch)
+        agents = load_config(config)
+        agent = agents["kairos"]
         skills = discover_skills(agent.skills_dir)
 
         mock_client = MagicMock()

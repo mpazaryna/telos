@@ -24,11 +24,11 @@ client = discord.Client(intents=intents)
 _execution_lock = asyncio.Lock()
 
 
-def _resolve_skill(request: str, agents: dict, default_agent: str, agent_name: str | None):
+def _resolve_skill(request: str, agents: dict, agent_name: str | None):
     """Find the right agent + skill for a request.
 
     When agent_name is explicit, only search that agent.
-    Otherwise try the default agent first, then all others.
+    Otherwise search all agents.
     Returns (agent, matched_skill) or (None, None).
     """
     if agent_name:
@@ -38,17 +38,9 @@ def _resolve_skill(request: str, agents: dict, default_agent: str, agent_name: s
         skills = discover_skills(agent.skills_dir)
         return agent, route_intent(request, skills) if skills else None
 
-    # Try default agent first
-    search_order = []
-    if default_agent and default_agent in agents:
-        search_order.append(default_agent)
-    for name in agents:
-        if name not in search_order:
-            search_order.append(name)
-
-    for name in search_order:
+    for name in sorted(agents):
         agent = agents[name]
-        skills = discover_skills(agent.skills_dir)
+        skills = discover_skills(agent.skills_dir) if agent.skills_dir else []
         if not skills:
             continue
         matched = route_intent(request, skills)
@@ -61,13 +53,13 @@ def _resolve_skill(request: str, agents: dict, default_agent: str, agent_name: s
 def _run_skill(request: str, agent_name: str | None = None) -> str:
     """Run a telos skill and capture stdout output."""
     config_path = get_config_dir() / "agents.toml"
-    agents, default_agent = load_config(config_path)
+    agents = load_config(config_path)
 
     if agent_name and agent_name not in agents:
         available = ", ".join(agents.keys())
         return f"Agent '{agent_name}' not found. Available: {available}"
 
-    agent, matched = _resolve_skill(request, agents, default_agent, agent_name)
+    agent, matched = _resolve_skill(request, agents, agent_name)
     if agent is None or matched is None:
         all_skills = []
         for a in agents.values():
@@ -89,6 +81,7 @@ def _run_skill(request: str, agent_name: str | None = None) -> str:
             env_path=env_path,
             user_request=request,
             mcp_config_path=agent.mcp_config,
+            pack_dir=agent.pack_dir,
         )
     finally:
         sys.stdout = old_stdout

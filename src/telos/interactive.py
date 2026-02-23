@@ -8,17 +8,17 @@ from rich.console import Console
 from rich.table import Table
 
 from telos.config import Agent, get_config_dir, load_config
-from telos.router import discover_skills
 
 
-def _load_agents() -> tuple[dict[str, Agent], str] | None:
+def _load_agents() -> dict[str, Agent] | None:
     """Try to load agents config. Returns None if not configured."""
     config_dir = get_config_dir()
     config_path = config_dir / "agents.toml"
-    if not config_path.exists():
-        return None
     try:
-        return load_config(config_path)
+        agents = load_config(config_path)
+        if not agents:
+            return None
+        return agents
     except (FileNotFoundError, ValueError):
         return None
 
@@ -54,18 +54,15 @@ def interactive_mode(console: Console, err_console: Console) -> None:
     if not sys.stdin.isatty():
         return
 
-    result = _load_agents()
-    if result is None:
+    agents = _load_agents()
+    if agents is None:
         err_console.print(
-            "[bold red]No agents.toml found.[/bold red] "
-            "Run [bold]telos init[/bold] to create one."
+            "[bold red]No agents found.[/bold red] "
+            "Run [bold]telos init[/bold] then [bold]telos install[/bold] to add agents."
         )
         return
 
-    agents, default_agent = result
-    if not agents:
-        err_console.print("[bold red]No agents configured.[/bold red]")
-        return
+    from telos.router import discover_skills
 
     # Show agents table
     table = Table(title="Agents")
@@ -80,8 +77,7 @@ def interactive_mode(console: Console, err_console: Console) -> None:
         skill_count = 0
         if agent.skills_dir and agent.skills_dir.exists():
             skill_count = len(list(agent.skills_dir.glob("*/SKILL.md")))
-        default_marker = " *" if name == default_agent else ""
-        table.add_row(str(i), f"{name}{default_marker}", str(skill_count), agent.description)
+        table.add_row(str(i), name, str(skill_count), agent.description)
 
     console.print()
     console.print(table)
@@ -140,6 +136,7 @@ def interactive_mode(console: Console, err_console: Console) -> None:
             working_dir=agent.working_dir,
             env_path=env_path,
             mcp_config_path=agent.mcp_config,
+            pack_dir=agent.pack_dir,
         )
     else:
         return

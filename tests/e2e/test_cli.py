@@ -83,43 +83,37 @@ def run_telos_isolated(
 
 @pytest.fixture
 def isolated_env(tmp_path):
-    """Return env vars that isolate telos config/data to tmp_path."""
+    """Return env vars that isolate telos config/data/skills to tmp_path."""
     config_dir = tmp_path / "config"
     data_dir = tmp_path / "data"
+    skills_dir = tmp_path / "skills_home"
     config_dir.mkdir()
     data_dir.mkdir()
+    skills_dir.mkdir()
     return {
         "TELOS_CONFIG_DIR": str(config_dir),
         "TELOS_DATA_DIR": str(data_dir),
+        "TELOS_SKILLS_DIR": str(skills_dir),
     }
 
 
 @pytest.fixture
 def configured_env(isolated_env, tmp_path):
-    """Return env with a valid agents.toml already set up."""
+    """Return env with agents discovered from skills dir."""
     config_dir = Path(isolated_env["TELOS_CONFIG_DIR"])
+    skills_home = Path(isolated_env["TELOS_SKILLS_DIR"])
 
-    skills_dir = tmp_path / "skills"
-    skills_dir.mkdir()
-    (skills_dir / "kickoff").mkdir()
-    (skills_dir / "kickoff" / "SKILL.md").write_text("---\ndescription: Morning orientation\n---\n# Kickoff\nStart the day")
-    (skills_dir / "shutdown").mkdir()
-    (skills_dir / "shutdown" / "SKILL.md").write_text("---\ndescription: End of day wrap-up\n---\n# Shutdown\nWrap up")
-    (skills_dir / "weekly-summary").mkdir()
-    (skills_dir / "weekly-summary" / "SKILL.md").write_text("---\ndescription: Weekly summary report\n---\n# Weekly Summary\nGenerate report")
+    # Set up kairos agent pack in skills dir
+    pack = skills_home / "kairos"
+    skills = pack / "skills"
+    (skills / "kickoff").mkdir(parents=True)
+    (skills / "kickoff" / "SKILL.md").write_text("---\ndescription: Morning orientation\n---\n# Kickoff\nStart the day")
+    (skills / "shutdown").mkdir()
+    (skills / "shutdown" / "SKILL.md").write_text("---\ndescription: End of day wrap-up\n---\n# Shutdown\nWrap up")
+    (skills / "weekly-summary").mkdir()
+    (skills / "weekly-summary" / "SKILL.md").write_text("---\ndescription: Weekly summary report\n---\n# Weekly Summary\nGenerate report")
+    (pack / "agent.toml").write_text(f'name = "kairos"\ndescription = "Personal productivity"\nworking_dir = "{tmp_path}"\n')
 
-    config_file = config_dir / "agents.toml"
-    config_file.write_text(f"""\
-[defaults]
-default_agent = "kairos"
-
-[agents.kairos]
-mode = "linked"
-description = "Personal productivity"
-skills_dir = "{skills_dir}"
-working_dir = "{tmp_path}"
-executor = "claude_code"
-""")
     return isolated_env
 
 
@@ -138,10 +132,13 @@ def real_env(tmp_path):
     # Install kairos pack into isolated dirs
     config_dir = tmp_path / "config"
     data_dir = tmp_path / "data"
+    skills_dir = tmp_path / "skills_home"
     config_dir.mkdir()
     data_dir.mkdir()
+    skills_dir.mkdir()
     env["TELOS_CONFIG_DIR"] = str(config_dir)
     env["TELOS_DATA_DIR"] = str(data_dir)
+    env["TELOS_SKILLS_DIR"] = str(skills_dir)
 
     # Install the pack
     result = subprocess.run(
@@ -150,16 +147,6 @@ def real_env(tmp_path):
         env={**os.environ, **env},
     )
     assert result.returncode == 0, f"Failed to install kairos pack: {result.stderr}"
-
-    # Set kairos as default agent
-    import tomllib
-    import tomli_w
-    config_path = config_dir / "agents.toml"
-    with open(config_path, "rb") as f:
-        config_data = tomllib.load(f)
-    config_data.setdefault("defaults", {})["default_agent"] = "kairos"
-    with open(config_path, "wb") as f:
-        tomli_w.dump(config_data, f)
 
     return env
 
@@ -207,30 +194,14 @@ class TestAgentFlag:
     """Tests for --agent flag."""
 
     def test_agent_flag_selects_agent(self, configured_env, tmp_path):
-        config_dir = Path(configured_env["TELOS_CONFIG_DIR"])
-        data_dir = Path(configured_env["TELOS_DATA_DIR"])
+        skills_home = Path(configured_env["TELOS_SKILLS_DIR"])
 
-        gmail_skills = data_dir / "agents" / "gmail" / "skills"
-        gmail_skills.mkdir(parents=True)
-        (gmail_skills / "check-email").mkdir()
+        # Set up gmail agent in skills dir
+        gmail_pack = skills_home / "gmail"
+        gmail_skills = gmail_pack / "skills"
+        (gmail_skills / "check-email").mkdir(parents=True)
         (gmail_skills / "check-email" / "SKILL.md").write_text("---\ndescription: Check email\n---\n# Check\nCheck it")
-
-        config_file = config_dir / "agents.toml"
-        config_file.write_text(f"""\
-[defaults]
-default_agent = "kairos"
-
-[agents.kairos]
-mode = "linked"
-description = "Personal productivity"
-skills_dir = "{tmp_path / 'skills'}"
-working_dir = "{tmp_path}"
-
-[agents.gmail]
-mode = "installed"
-description = "Gmail"
-working_dir = "."
-""")
+        (gmail_pack / "agent.toml").write_text('name = "gmail"\ndescription = "Gmail"\nworking_dir = "."\n')
 
         result = run_telos_isolated("--agent", "gmail", "--dry-run", "check-email", env_override=configured_env)
         assert result.returncode == 0
@@ -286,6 +257,10 @@ class TestInstallCommand:
         assert result.returncode == 0
         assert "gmail" in result.stdout.lower()
 
+        # Verify installed to skills dir
+        skills_home = Path(isolated_env["TELOS_SKILLS_DIR"])
+        assert (skills_home / "gmail" / "skills" / "check" / "SKILL.md").exists()
+
 
 class TestUninstallCommand:
     """Tests for the uninstall command."""
@@ -340,7 +315,7 @@ class TestMcpConfig:
     """Tests for MCP config support."""
 
     def test_install_clickup_pack_with_mcp_json(self, isolated_env, tmp_path):
-        """Install a pack with mcp.json → file ends up in agent dir,
+        """Install a pack with mcp.json → file ends up in skills dir,
         dry-run routes correctly."""
         pack_dir = tmp_path / "clickup-pack"
         pack_dir.mkdir()
@@ -360,9 +335,9 @@ class TestMcpConfig:
         assert result.returncode == 0
         assert "clickup" in result.stdout.lower()
 
-        # Verify mcp.json was copied
-        data_dir = Path(isolated_env["TELOS_DATA_DIR"])
-        mcp_dest = data_dir / "agents" / "clickup" / "mcp.json"
+        # Verify mcp.json was copied to skills dir
+        skills_home = Path(isolated_env["TELOS_SKILLS_DIR"])
+        mcp_dest = skills_home / "clickup" / "mcp.json"
         assert mcp_dest.exists()
         assert "clickup" in mcp_dest.read_text()
 

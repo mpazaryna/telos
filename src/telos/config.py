@@ -1,4 +1,4 @@
-"""Agent configuration loading from agents.toml."""
+"""Agent configuration loading from ~/.skills/ discovery + agents.toml overrides."""
 
 from __future__ import annotations
 
@@ -24,32 +24,36 @@ def get_data_dir() -> Path:
     return Path.home() / ".local/share/telos"
 
 
+def get_skills_dir() -> Path:
+    """Return the skills directory, respecting TELOS_SKILLS_DIR env override."""
+    env = os.environ.get("TELOS_SKILLS_DIR")
+    if env:
+        return Path(env)
+    return Path.home() / ".skills"
+
+
 @dataclass
 class Agent:
     """Represents a registered agent with its configuration."""
 
     name: str
-    mode: str
     description: str
     skills_dir: Path | None
     working_dir: Path
+    pack_dir: Path | None = None
     executor: str = "claude_code"
     mcp_config: Path | None = None
 
     def __post_init__(self) -> None:
-        # Validate linked mode requires skills_dir
-        if self.mode == "linked" and self.skills_dir is None:
-            raise ValueError(f"Agent '{self.name}': linked mode requires explicit skills_dir")
-
-        # Derive skills_dir for installed mode
-        if self.mode == "installed" and self.skills_dir is None:
-            self.skills_dir = get_data_dir() / f"agents/{self.name}/skills"
-
-        # Auto-derive mcp_config for installed mode if not explicitly set
-        if self.mode == "installed" and self.mcp_config is None:
-            candidate = get_data_dir() / f"agents/{self.name}/mcp.json"
-            if candidate.exists():
-                self.mcp_config = candidate
+        # Derive skills_dir and mcp_config from pack_dir
+        if self.pack_dir is not None:
+            self.pack_dir = self.pack_dir.expanduser()
+            if self.skills_dir is None:
+                self.skills_dir = self.pack_dir / "skills"
+            if self.mcp_config is None:
+                candidate = self.pack_dir / "mcp.json"
+                if candidate.exists():
+                    self.mcp_config = candidate
 
         # Expand tilde in paths
         if self.skills_dir is not None:
@@ -59,40 +63,101 @@ class Agent:
         self.working_dir = self.working_dir.expanduser()
 
 
-def load_config(config_path: Path) -> tuple[dict[str, Agent], str]:
-    """Load agents.toml and return (agents_dict, default_agent_name).
+def discover_agents(skills_dir: Path) -> dict[str, Agent]:
+    """Scan skills_dir for agent packs.
 
-    Raises FileNotFoundError if config_path does not exist.
-    Raises ValueError if default_agent references a nonexistent agent.
+    Each subdirectory containing skills/*/SKILL.md is treated as an agent.
+    Reads optional agent.toml for metadata; infers defaults from directory name.
     """
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config not found: {config_path}")
-
-    with open(config_path, "rb") as f:
-        data = tomllib.load(f)
-
-    default_agent = data.get("defaults", {}).get("default_agent", "")
-    agents_data = data.get("agents", {})
-
     agents: dict[str, Agent] = {}
-    for name, cfg in agents_data.items():
-        skills_dir_raw = cfg.get("skills_dir")
-        skills_dir = Path(skills_dir_raw) if skills_dir_raw else None
-        mcp_config_raw = cfg.get("mcp_config")
-        mcp_config = Path(mcp_config_raw) if mcp_config_raw else None
+    if not skills_dir.exists():
+        return agents
+
+    for entry in sorted(skills_dir.iterdir()):
+        if not entry.is_dir():
+            continue
+        skills_subdir = entry / "skills"
+        if not skills_subdir.exists():
+            continue
+        skill_files = list(skills_subdir.glob("*/SKILL.md"))
+        if not skill_files:
+            continue
+
+        name = entry.name
+        description = ""
+        working_dir = Path(f"~/obsidian/telos/{name}")
+
+        # Read optional agent.toml
+        agent_toml = entry / "agent.toml"
+        if agent_toml.exists():
+            with open(agent_toml, "rb") as f:
+                data = tomllib.load(f)
+            name = data.get("name", name)
+            description = data.get("description", "")
+            working_dir = Path(data.get("working_dir", str(working_dir)))
+
         agents[name] = Agent(
             name=name,
-            mode=cfg["mode"],
-            description=cfg.get("description", ""),
-            skills_dir=skills_dir,
-            working_dir=Path(cfg.get("working_dir", ".")),
-            executor=cfg.get("executor", "claude_code"),
-            mcp_config=mcp_config,
+            description=description,
+            skills_dir=None,  # derived from pack_dir in __post_init__
+            working_dir=working_dir,
+            pack_dir=entry,
         )
 
-    if default_agent and default_agent not in agents:
-        raise ValueError(
-            f"Default agent '{default_agent}' not found in agents: {list(agents.keys())}"
-        )
+    return agents
 
-    return agents, default_agent
+
+def load_config(config_path: Path) -> dict[str, Agent]:
+    """Load agent configuration: discover from ~/.skills/ then merge agents.toml overrides.
+
+    Does not require agents.toml to exist — discovery alone is sufficient.
+    """
+    # Discover from skills dir
+    agents = discover_agents(get_skills_dir())
+
+    if config_path.exists():
+        with open(config_path, "rb") as f:
+            data = tomllib.load(f)
+
+        agents_data = data.get("agents", {})
+
+        for name, cfg in agents_data.items():
+            if name in agents:
+                # Merge overrides onto discovered agent
+                existing = agents[name]
+                if "working_dir" in cfg:
+                    existing.working_dir = Path(cfg["working_dir"]).expanduser()
+                if "description" in cfg:
+                    existing.description = cfg["description"]
+                if "skills_dir" in cfg:
+                    existing.skills_dir = Path(cfg["skills_dir"]).expanduser()
+                if "mcp_config" in cfg:
+                    existing.mcp_config = Path(cfg["mcp_config"]).expanduser()
+            else:
+                # Agent from toml only — backward compat
+                skills_dir_raw = cfg.get("skills_dir")
+                skills_dir = Path(skills_dir_raw) if skills_dir_raw else None
+                mcp_config_raw = cfg.get("mcp_config")
+                mcp_config = Path(mcp_config_raw) if mcp_config_raw else None
+
+                # Backward compat: mode=installed → derive pack_dir from old data dir
+                pack_dir = None
+                mode = cfg.get("mode")
+                if mode == "installed":
+                    old_pack_dir = get_data_dir() / "agents" / name
+                    if old_pack_dir.exists():
+                        pack_dir = old_pack_dir
+                        if skills_dir is None:
+                            skills_dir = old_pack_dir / "skills"
+
+                agents[name] = Agent(
+                    name=name,
+                    description=cfg.get("description", ""),
+                    skills_dir=skills_dir,
+                    working_dir=Path(cfg.get("working_dir", ".")),
+                    pack_dir=pack_dir,
+                    executor=cfg.get("executor", "claude_code"),
+                    mcp_config=mcp_config,
+                )
+
+    return agents

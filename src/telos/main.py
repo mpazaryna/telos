@@ -11,7 +11,7 @@ import typer.core
 from rich.console import Console
 from rich.table import Table
 
-from telos.config import Agent, get_config_dir, get_data_dir, load_config
+from telos.config import Agent, get_config_dir, get_skills_dir, load_config
 from telos.executor import execute_skill
 from telos.installer import install_agent, uninstall_agent
 from telos.router import Skill, discover_skills, route_intent
@@ -39,7 +39,7 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-def _load_agents_or_exit() -> tuple[dict[str, Agent], str]:
+def _load_agents_or_exit() -> dict[str, Agent]:
     """Load config or print init hint and exit."""
     config_dir = get_config_dir()
     config_path = config_dir / "agents.toml"
@@ -48,33 +48,48 @@ def _load_agents_or_exit() -> tuple[dict[str, Agent], str]:
         project_config = Path.cwd() / "config" / "agents.toml"
         if project_config.exists():
             config_path = project_config
-        else:
-            err_console.print(
-                "[bold red]No agents.toml found.[/bold red] "
-                "Run [bold]telos init[/bold] to create one."
-            )
-            raise typer.Exit(code=1)
 
-    try:
-        return load_config(config_path)
-    except FileNotFoundError:
+    # load_config discovers from ~/.skills/ even without agents.toml
+    agents = load_config(config_path)
+
+    if not agents:
         err_console.print(
-            "[bold red]No agents.toml found.[/bold red] "
-            "Run [bold]telos init[/bold] to create one."
+            "[bold red]No agents found.[/bold red] "
+            "Run [bold]telos init[/bold] then [bold]telos install packs/<name>[/bold] to add agents."
         )
         raise typer.Exit(code=1)
 
+    return agents
 
-def _resolve_agent(agents: dict[str, Agent], default_agent: str, agent_name: str | None) -> Agent:
-    """Resolve which agent to use."""
-    name = agent_name or default_agent
-    if not name:
-        err_console.print("[bold red]No default agent configured and no --agent flag provided.[/bold red]")
-        raise typer.Exit(code=1)
-    if name not in agents:
-        err_console.print(f"[bold red]Agent '{name}' not found.[/bold red] Available: {', '.join(agents.keys())}")
-        raise typer.Exit(code=1)
-    return agents[name]
+
+def _route_across_agents(
+    request: str,
+    agents: dict[str, Agent],
+    agent_name: str | None = None,
+) -> tuple[Agent, Skill] | tuple[None, None]:
+    """Find the right agent + skill for a request.
+
+    When agent_name is explicit, only search that agent.
+    Otherwise search all agents.
+    """
+    if agent_name:
+        if agent_name not in agents:
+            return None, None
+        agent = agents[agent_name]
+        skills = discover_skills(agent.skills_dir) if agent.skills_dir else []
+        matched = route_intent(request, skills) if skills else None
+        return (agent, matched) if matched else (None, None)
+
+    for name in sorted(agents):
+        agent = agents[name]
+        skills = discover_skills(agent.skills_dir) if agent.skills_dir else []
+        if not skills:
+            continue
+        matched = route_intent(request, skills)
+        if matched is not None:
+            return agent, matched
+
+    return None, None
 
 
 def _print_skills_table(skills: list[Skill], header: str = "Skills") -> None:
@@ -93,28 +108,32 @@ def _handle_request(
     dry_run: bool,
     verbose: bool,
 ) -> None:
-    """Core request handling: load config, route, execute."""
-    agents, default_agent = _load_agents_or_exit()
-    selected = _resolve_agent(agents, default_agent, agent_name)
-    skills = discover_skills(selected.skills_dir)
+    """Core request handling: load config, route across agents, execute."""
+    agents = _load_agents_or_exit()
 
-    if not skills:
-        err_console.print(f"[bold red]No skills found for agent '{selected.name}'.[/bold red]")
+    if agent_name and agent_name not in agents:
+        err_console.print(f"[bold red]Agent '{agent_name}' not found.[/bold red] Available: {', '.join(sorted(agents.keys()))}")
+        raise typer.Exit(code=1)
+
+    selected, matched = _route_across_agents(request, agents, agent_name)
+
+    if selected is None or matched is None:
+        err_console.print(f"[bold red]No matching skill found for:[/bold red] '{request}'")
+        err_console.print()
+        # Show all available skills across agents
+        all_skills: list[Skill] = []
+        for agent in agents.values():
+            if agent.skills_dir:
+                all_skills.extend(discover_skills(agent.skills_dir))
+        if all_skills:
+            _print_skills_table(all_skills, header="Available skills:")
         raise typer.Exit(code=1)
 
     if verbose:
         console.print(f"[dim]Agent:[/dim] {selected.name}")
         console.print(f"[dim]Skills dir:[/dim] {selected.skills_dir}")
-
-    matched = route_intent(request, skills)
-
-    if matched is None:
-        err_console.print(f"[bold red]No matching skill found for:[/bold red] '{request}'")
-        err_console.print()
-        _print_skills_table(skills, header="Available skills:")
-        raise typer.Exit(code=1)
-
-    if verbose:
+        if selected.pack_dir:
+            console.print(f"[dim]Pack dir:[/dim] {selected.pack_dir}")
         console.print(f"[dim]Matched skill:[/dim] {matched.name}")
 
     if dry_run:
@@ -128,13 +147,14 @@ def _handle_request(
         env_path=env_path,
         user_request=request,
         mcp_config_path=selected.mcp_config,
+        pack_dir=selected.pack_dir,
     )
 
 
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    agent: Optional[str] = typer.Option(None, "--agent", "-a", help="Agent to use (overrides default)"),
+    agent: Optional[str] = typer.Option(None, "--agent", "-a", help="Agent to use"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show matched skill without executing"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show routing details"),
 ) -> None:
@@ -172,38 +192,46 @@ def run(
 def list_skills(
     agent: Optional[str] = typer.Option(None, "--agent", "-a", help="Agent to list skills for"),
 ) -> None:
-    """List available skills for an agent."""
-    agents, default_agent = _load_agents_or_exit()
-    selected = _resolve_agent(agents, default_agent, agent)
-    skills = discover_skills(selected.skills_dir)
+    """List available skills for an agent (or all agents)."""
+    agents = _load_agents_or_exit()
 
-    if not skills:
-        console.print(f"No skills found for agent '{selected.name}'.")
-        return
-
-    _print_skills_table(skills, header=f"Skills for {selected.name}")
+    if agent:
+        if agent not in agents:
+            err_console.print(f"[bold red]Agent '{agent}' not found.[/bold red]")
+            raise typer.Exit(code=1)
+        selected = agents[agent]
+        skills = discover_skills(selected.skills_dir) if selected.skills_dir else []
+        if not skills:
+            console.print(f"No skills found for agent '{agent}'.")
+            return
+        _print_skills_table(skills, header=f"Skills for {agent}")
+    else:
+        for name in sorted(agents):
+            a = agents[name]
+            skills = discover_skills(a.skills_dir) if a.skills_dir else []
+            if skills:
+                _print_skills_table(skills, header=f"Skills for {name}")
 
 
 @app.command()
 def agents() -> None:
     """List all registered agents."""
-    all_agents, default_agent = _load_agents_or_exit()
+    all_agents = _load_agents_or_exit()
 
     table = Table(title="Registered Agents")
     table.add_column("Agent", style="cyan")
-    table.add_column("Mode", style="yellow")
     table.add_column("Skills", justify="right")
+    table.add_column("Pack Dir", style="dim")
     table.add_column("Working Dir", style="dim")
 
     for name, agent_obj in sorted(all_agents.items()):
         skill_count = 0
         if agent_obj.skills_dir and agent_obj.skills_dir.exists():
             skill_count = len(list(agent_obj.skills_dir.glob("*/SKILL.md")))
-        default_marker = " *" if name == default_agent else ""
         table.add_row(
-            f"{name}{default_marker}",
-            agent_obj.mode,
+            name,
             str(skill_count),
+            str(agent_obj.pack_dir or "—"),
             str(agent_obj.working_dir),
         )
 
@@ -229,7 +257,7 @@ def install(
     console.print(
         f"[bold green]Installed agent '{result.agent_name}' with {result.skill_count} skills[/bold green]"
     )
-    console.print(f"[dim]Skills at:[/dim] {result.install_path}")
+    console.print(f"[dim]Installed to:[/dim] {result.install_path}")
 
 
 @app.command()
@@ -255,40 +283,38 @@ def uninstall(
 
 @app.command()
 def init() -> None:
-    """Create starter config at the telos config directory."""
+    """Create starter config and skills directory."""
     config_dir = get_config_dir()
-    data_dir = get_data_dir()
+    skills_dir = get_skills_dir()
     config_path = config_dir / "agents.toml"
+
+    config_dir.mkdir(parents=True, exist_ok=True)
+    skills_dir.mkdir(parents=True, exist_ok=True)
 
     if config_path.exists():
         console.print(
             f"Config already exists at {config_path} — not overwriting."
         )
-        return
-
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (data_dir / "agents").mkdir(parents=True, exist_ok=True)
-
-    config_path.write_text("""\
+    else:
+        config_path.write_text("""\
 # Telos agent configuration
-# See: telos agents --help
+# Agents are discovered automatically from ~/.skills/
+# This file is for overrides only (working_dir, etc.)
 
-[defaults]
-default_agent = ""
+# Override working_dir for a discovered agent:
+# [agents.hackernews]
+# working_dir = "~/obsidian/telos/hackernews"
 
-# Example linked agent:
+# Legacy linked agent (skills in external directory):
 # [agents.kairos]
-# mode = "linked"
 # description = "Personal productivity"
-# skills_dir = "~/Documents/ObsidianVault/.claude/commands"
-# working_dir = "~/Documents/ObsidianVault"
-# executor = "claude_code"
-
-# Installed agents are added automatically via `telos install`
+# skills_dir = "~/vault/.claude/commands"
+# working_dir = "~/vault"
 """)
+        console.print(f"[bold green]Config created at {config_path}[/bold green]")
 
-    console.print(f"[bold green]Config created at {config_path}[/bold green]")
-    console.print("Edit it to register your agents, then run [bold]telos agents[/bold] to verify.")
+    console.print(f"[bold green]Skills directory at {skills_dir}[/bold green]")
+    console.print("Install packs with [bold]telos install packs/<name>[/bold]")
 
 
 @app.command()
