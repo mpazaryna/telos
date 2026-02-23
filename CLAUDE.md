@@ -53,11 +53,8 @@ src/telos/
   installer.py      # pack install/uninstall (copytree to ~/.skills/)
   interactive.py    # interactive agent/skill selection
 
-packs/              # bundled agent packs
-  kairos/           # personal productivity (linked to Obsidian)
-  hackernews/       # HN frontpage summaries
-  clickup/          # project standup via MCP
-  apple-calendar/   # Calendar.app integration (ported from OpenClaw)
+docs/
+  skill-example/    # annotated example of a SKILL.md
 
 .orchestra/          # agentic reference docs
   specs/

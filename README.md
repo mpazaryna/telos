@@ -21,6 +21,8 @@ You type natural language. Telos routes to the right skill and executes it via d
 - **Discord included.** Built-in bot, same routing, run skills from any device.
 - **Small enough to audit.** The whole engine fits in your head.
 
+Never seen a skill? Look at [`docs/skill-example/`](docs/skill-example/).
+
 ## Why it's built this way
 
 The runtime used to be the moat. You paid Oracle for the database, Salesforce for the CRM, Microsoft for the BI layer. Your logic was locked inside their runtime. That was the business model.
@@ -69,16 +71,13 @@ ANTHROPIC_API_KEY=sk-ant-...
 EOF
 ```
 
-Install the bundled packs:
+Initialize:
 
 ```bash
 uv run telos init
-uv run telos install packs/hackernews
-uv run telos install packs/clickup
-uv run telos install packs/kairos
 ```
 
-Packs land in `~/.skills/` and are discovered automatically. Override with `TELOS_SKILLS_DIR`.
+Agents live in `~/.skills/` and are discovered automatically. Override with `TELOS_SKILLS_DIR`.
 
 ## Usage
 

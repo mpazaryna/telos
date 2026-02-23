@@ -11,7 +11,7 @@ import pytest
 
 VAULT_PATH = Path("/Users/mpaz/obsidian")
 INTERSTITIAL_DIR = VAULT_PATH / "50-log/interstitial"
-KAIROS_PACK = Path(__file__).resolve().parent.parent.parent / "packs" / "kairos"
+KAIROS_PACK = Path.home() / ".skills" / "kairos"
 API_KEY_FILE = Path.home() / ".config/telos/.env"
 
 

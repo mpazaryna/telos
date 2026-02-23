@@ -1,3 +1,0 @@
-name = "apple-calendar"
-description = "Apple Calendar.app integration — list, create, update, delete events"
-working_dir = "~/obsidian/telos/apple-calendar"

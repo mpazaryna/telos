@@ -1,4 +1,0 @@
-name = "kairos"
-description = "Personal productivity system — daily notes, weekly/monthly summaries, load tracking"
-working_dir = "~/obsidian/telos/kairos"
-executor = "claude_code"

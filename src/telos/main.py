@@ -55,7 +55,7 @@ def _load_agents_or_exit() -> dict[str, Agent]:
     if not agents:
         err_console.print(
             "[bold red]No agents found.[/bold red] "
-            "Run [bold]telos init[/bold] then [bold]telos install packs/<name>[/bold] to add agents."
+            "Run [bold]telos init[/bold] then [bold]telos install <path-to-pack>[/bold] to add agents."
         )
         raise typer.Exit(code=1)
 
@@ -314,7 +314,7 @@ def init() -> None:
         console.print(f"[bold green]Config created at {config_path}[/bold green]")
 
     console.print(f"[bold green]Skills directory at {skills_dir}[/bold green]")
-    console.print("Install packs with [bold]telos install packs/<name>[/bold]")
+    console.print("Install packs with [bold]telos install <path-to-pack>[/bold]")
 
 
 @app.command()
