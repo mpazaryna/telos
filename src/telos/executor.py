@@ -208,6 +208,8 @@ def _execute_simple(provider: AnthropicProvider | OllamaProvider, prompt: str, c
     system = "Follow the instructions carefully and provide a helpful response. Use the available tools to read and write files as needed."
     messages: list[dict] = [{"role": "user", "content": prompt}]
     tools = BUILTIN_TOOLS
+    has_text_output = False
+    written_contents: list[str] = []
 
     for _round in range(20):
         log_ctx["rounds"] = _round + 1
@@ -221,6 +223,7 @@ def _execute_simple(provider: AnthropicProvider | OllamaProvider, prompt: str, c
                     sys.stdout.write(event.text)
                     sys.stdout.flush()
                     text_parts.append(event.text)
+                    has_text_output = True
                 elif event.type == "tool_call" and event.tool_call:
                     tool_calls.append(event.tool_call)
         except Exception:
@@ -263,7 +266,14 @@ def _execute_simple(provider: AnthropicProvider | OllamaProvider, prompt: str, c
                     "is_error": result.is_error,
                 }
             )
+            # Track write_file content for fallback output
+            if tc.name == "write_file" and not result.is_error:
+                written_contents.append(tc.arguments.get("content", ""))
         messages.append({"role": "user", "content": tool_results})
+
+    # Fallback: if model produced no text but wrote files, echo the content
+    if not has_text_output and written_contents:
+        sys.stdout.write(written_contents[-1])
 
     sys.stdout.write("\n")
     sys.stdout.flush()
@@ -288,6 +298,8 @@ async def _execute_with_mcp(
         system = "Follow the instructions carefully and provide a helpful response. Use the available tools as needed."
         messages: list[dict] = [{"role": "user", "content": prompt}]
         tools = list(BUILTIN_TOOLS) + mcp_ctx.tools
+        has_text_output = False
+        written_contents: list[str] = []
 
         for _round in range(20):
             log_ctx["rounds"] = _round + 1
@@ -299,6 +311,7 @@ async def _execute_with_mcp(
                     sys.stdout.write(event.text)
                     sys.stdout.flush()
                     text_parts.append(event.text)
+                    has_text_output = True
                 elif event.type == "tool_call" and event.tool_call:
                     tool_calls.append(event.tool_call)
 
@@ -337,7 +350,14 @@ async def _execute_with_mcp(
                         "is_error": result.is_error,
                     }
                 )
+                # Track write_file content for fallback output
+                if tc.name == "write_file" and not result.is_error:
+                    written_contents.append(tc.arguments.get("content", ""))
             messages.append({"role": "user", "content": tool_results})
+
+        # Fallback: if model produced no text but wrote files, echo the content
+        if not has_text_output and written_contents:
+            sys.stdout.write(written_contents[-1])
 
     sys.stdout.write("\n")
     sys.stdout.flush()
